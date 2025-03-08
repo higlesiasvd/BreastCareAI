@@ -64,14 +64,14 @@ python src/main.py
 
 ## Datasets
 
-El sistema está diseñado para funcionar con los siguientes conjuntos de datos públicos:
+Este repositorio utiliza dos datasets para la detección de cáncer de mama:
 
-- CBIS-DDSM (Curated Breast Imaging Subset of DDSM)
-- MIAS dataset
+- **CBIS-DDSM**: [Enlace de descarga de CBIS-DDSM](https://www.kaggle.com/datasets/awsaf49/cbis-ddsm-breast-cancer-image-dataset)
+- **MIAS**: [Enlace de descarga de MIAS](https://www.kaggle.com/datasets/kmader/mias-mammography/code)
 
-## Contribución
+Por favor, descarga los datasets antes de ejecutar el proyecto.
 
-Este proyecto es parte de la asignatura de Sistemas Inteligentes (G24GXX3.32X) de la Universidad Intercontinental de la Empresa (UIE).
+Este proyecto es parte de la Universidad Intercontinental de la Empresa (UIE).
 
 ## Licencia
 

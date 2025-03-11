@@ -172,5 +172,3 @@ cython_debug/
 
 # Datasets
 datasets/
-*.zip
-*.tar.gz

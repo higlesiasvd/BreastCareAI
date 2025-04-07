@@ -79,8 +79,13 @@ if 'collections' not in st.session_state:
         "Post-operatorio": {"files": [], "vectorstore": None, "last_updated": None},
         "Nutrición": {"files": [], "vectorstore": None, "last_updated": None}
     }
+# CORRECCIÓN: Inicialización de la memoria con output_key especificado
 if 'memory' not in st.session_state:
-    st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    st.session_state.memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        return_messages=True,
+        output_key="answer"  # Especificando qué clave de salida se almacenará en la memoria
+    )
 if 'current_question' not in st.session_state:
     st.session_state.current_question = ""
 if 'patient_profile' not in st.session_state:
@@ -508,14 +513,15 @@ if current_collection_data.get("files"):
                 # Create LLM
                 llm = ChatOllama(model="llama3:8b", temperature=temperature)
                 
-                # Create conversational chain with memory
+                # CORRECCIÓN: Create conversational chain with memory y output_key especificado
                 qa_chain = ConversationalRetrievalChain.from_llm(
                     llm=llm,
                     retriever=current_collection_data["vectorstore"].as_retriever(
                         search_kwargs={"k": k_retrievals}
                     ),
                     memory=st.session_state.memory,
-                    return_source_documents=True
+                    return_source_documents=True,
+                    output_key="answer"  # Especificar la clave de salida que se usará
                 )
                 
                 # Modify the question to include patient context

@@ -14,6 +14,7 @@ st.markdown("Accede a información médica verificada sobre cáncer de mama")
 
 # Create required directories if they don't exist
 os.makedirs("vectorstores", exist_ok=True)
+os.makedirs("knowledge_base", exist_ok=True)
 
 # Medical disclaimer - Important for ethical and legal considerations
 def show_medical_disclaimer():
@@ -70,21 +71,21 @@ if 'vectorstore' not in st.session_state:
 if 'processed_files' not in st.session_state:
     st.session_state.processed_files = []
 if 'current_collection' not in st.session_state:
-    st.session_state.current_collection = "General"
+    st.session_state.current_collection = "Base de conocimiento"
 if 'collections' not in st.session_state:
     st.session_state.collections = {
+        "Base de conocimiento": {"files": [], "vectorstore": None, "last_updated": None},
         "General": {"files": [], "vectorstore": None, "last_updated": None},
         "Diagnóstico": {"files": [], "vectorstore": None, "last_updated": None},
         "Tratamientos": {"files": [], "vectorstore": None, "last_updated": None},
         "Post-operatorio": {"files": [], "vectorstore": None, "last_updated": None},
         "Nutrición": {"files": [], "vectorstore": None, "last_updated": None}
     }
-# CORRECCIÓN: Inicialización de la memoria con output_key especificado
 if 'memory' not in st.session_state:
     st.session_state.memory = ConversationBufferMemory(
         memory_key="chat_history",
         return_messages=True,
-        output_key="answer"  # Especificando qué clave de salida se almacenará en la memoria
+        output_key="answer"
     )
 if 'current_question' not in st.session_state:
     st.session_state.current_question = ""
@@ -94,6 +95,14 @@ if 'patient_profile' not in st.session_state:
         "stage": "Pre-diagnóstico",
         "preferences": ["Información básica"]
     }
+if 'knowledge_base_loaded' not in st.session_state:
+    st.session_state.knowledge_base_loaded = False
+
+if 'pdf_loader_type' not in st.session_state:
+    st.session_state.pdf_loader_type = "PyPDFLoader (rápido)"
+
+if 'embedding_model' not in st.session_state:
+    st.session_state.embedding_model = "all-minilm"
 
 # Persistent storage functions
 def save_vectorstore(vs, collection_name):
@@ -126,6 +135,140 @@ def load_vectorstore(collection_name):
     except Exception as e:
         st.error(f"Error al cargar la base de vectores: {str(e)}")
         return None
+
+# Knowledge base functions
+def create_knowledge_base_folder():
+    """Create knowledge_base folder if it doesn't exist"""
+    os.makedirs("knowledge_base", exist_ok=True)
+    return os.path.exists("knowledge_base")
+
+def get_knowledge_base_pdfs():
+    """Get list of PDFs in the knowledge_base folder"""
+    if not os.path.exists("knowledge_base"):
+        return []
+    return [f for f in os.listdir("knowledge_base") if f.lower().endswith(".pdf")]
+
+def process_knowledge_base():
+    """Process all PDFs in the knowledge_base folder and create vectorstore"""
+    pdfs = get_knowledge_base_pdfs()
+    if not pdfs:
+        st.warning("No hay PDFs en la carpeta knowledge_base.")
+        return None
+    
+    # Crear un contenedor para mostrar el progreso
+    progress_container = st.container()
+    progress_container.subheader("Progreso del procesamiento")
+    progress_bar = progress_container.progress(0)
+    status_text = progress_container.empty()
+    metrics_col1, metrics_col2, metrics_col3 = progress_container.columns(3)
+    
+    total_docs = 0
+    processed_docs = 0
+    total_chunks = 0
+    
+    with st.spinner(f"Procesando {len(pdfs)} PDFs de la base de conocimiento..."):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            all_docs = []
+            
+            # Primera pasada para contar documentos
+            status_text.text("Contando documentos totales...")
+            for pdf_name in pdfs:
+                pdf_path = os.path.join("knowledge_base", pdf_name)
+                try:
+                    if "PyPDFLoader" in st.session_state.pdf_loader_type:
+                        loader = PyPDFLoader(pdf_path)
+                        # Solo contar páginas para PyPDFLoader
+                        sample_docs = loader.load()
+                        total_docs += len(sample_docs)
+                    else:
+                        # Para UnstructuredPDFLoader es más complejo contar páginas
+                        total_docs += 1  # Contamos cada PDF como un documento
+                except Exception as e:
+                    pass
+            
+            metrics_col1.metric("Total PDFs", len(pdfs))
+            metrics_col2.metric("Total documentos", total_docs)
+            
+            # Segunda pasada para procesar
+            status_text.text("Procesando documentos...")
+            for i, pdf_name in enumerate(pdfs):
+                pdf_path = os.path.join("knowledge_base", pdf_name)
+                
+                try:
+                    status_text.text(f"Procesando: {pdf_name}")
+                    
+                    # Usar el valor de la sesión en lugar de acceder directamente
+                    if "PyPDFLoader" in st.session_state.pdf_loader_type:
+                        loader = PyPDFLoader(pdf_path)
+                    else:
+                        loader = UnstructuredPDFLoader(pdf_path)
+                    
+                    docs = loader.load()
+                    
+                    # Add metadata
+                    for doc in docs:
+                        doc.metadata["collection"] = "Base de conocimiento"
+                        doc.metadata["file_name"] = pdf_name
+                        doc.metadata["date_added"] = datetime.now().strftime("%Y-%m-%d")
+                    
+                    all_docs.extend(docs)
+                    processed_docs += len(docs)
+                    metrics_col3.metric("Documentos procesados", processed_docs, delta=len(docs))
+                    
+                    # Actualizar barra de progreso basada en PDFs procesados
+                    progress = min(1.0, (i + 1) / len(pdfs))
+                    progress_bar.progress(progress)
+                    
+                except Exception as e:
+                    st.error(f"Error al procesar {pdf_name}: {str(e)}")
+            
+            if all_docs:
+                # Split text into chunks
+                status_text.text("Dividiendo texto en chunks...")
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=1000,
+                    chunk_overlap=100
+                )
+                chunks = text_splitter.split_documents(all_docs)
+                total_chunks = len(chunks)
+                metrics_col3.metric("Chunks generados", total_chunks)
+                
+                # Create embeddings and vectorstore
+                try:
+                    status_text.text("Generando embeddings con Ollama...")
+                    embeddings = OllamaEmbeddings(model=st.session_state.embedding_model)
+                    
+                    # Mostrar progreso al crear los embeddings
+                    with st.spinner("Creando vectorstore... (puede tardar unos minutos)"):
+                        vectorstore = FAISS.from_documents(chunks, embeddings)
+                    
+                    # Save to disk
+                    status_text.text("Guardando vectorstore en disco...")
+                    save_vectorstore(vectorstore, "Base de conocimiento")
+                    
+                    status_text.text("✅ Procesamiento completado con éxito")
+                    progress_bar.progress(1.0)
+                    
+                    return vectorstore
+                except Exception as e:
+                    status_text.text(f"❌ Error al crear embeddings: {str(e)}")
+                    st.error(f"Error al crear embeddings: {str(e)}")
+                    return None
+            return None
+
+def add_to_knowledge_base(file):
+    """Add a file to the knowledge_base folder"""
+    create_knowledge_base_folder()
+    file_path = os.path.join("knowledge_base", file.name)
+    
+    try:
+        # Save file to knowledge base
+        with open(file_path, "wb") as f:
+            f.write(file.getbuffer())
+        return True
+    except Exception as e:
+        st.error(f"Error al añadir {file.name} a la base de conocimiento: {str(e)}")
+        return False
 
 # Medical glossary for automatic term highlighting
 medical_terms = {
@@ -207,120 +350,35 @@ def verify_medical_accuracy(response):
     
     return confidence, disclaimer
 
-# Sidebar configuration with patient profile and document collections
-with st.sidebar:
-    st.header("Configuración")
+# Carga inicial de la base de conocimiento
+if not st.session_state.knowledge_base_loaded:
+    # Create knowledge_base folder if it doesn't exist
+    create_knowledge_base_folder()
     
-    # Patient profile section
-    st.subheader("Perfil del Paciente")
-    with st.expander("Configurar perfil"):
-        st.session_state.patient_profile["age"] = st.number_input(
-            "Edad", 
-            min_value=18, 
-            max_value=100, 
-            value=st.session_state.patient_profile["age"]
-        )
-        
-        st.session_state.patient_profile["stage"] = st.selectbox(
-            "Etapa",
-            ["Pre-diagnóstico", "Recién diagnosticado", "En tratamiento", "Post-tratamiento", "Superviviente"],
-            index=["Pre-diagnóstico", "Recién diagnosticado", "En tratamiento", "Post-tratamiento", "Superviviente"].index(st.session_state.patient_profile["stage"])
-        )
-        
-        st.session_state.patient_profile["preferences"] = st.multiselect(
-            "Preferencias de información",
-            ["Información básica", "Detalles técnicos", "Opciones de tratamiento", "Estudios clínicos"],
-            default=st.session_state.patient_profile["preferences"]
-        )
+    # Try to load pre-processed vectorstore
+    loaded_kb = load_vectorstore("Base de conocimiento")
     
-    # Collections management
-    st.subheader("Colecciones de Documentos")
-    
-    collection_options = list(st.session_state.collections.keys()) + ["Nueva colección..."]
-    selected_collection = st.selectbox(
-        "Seleccionar colección",
-        collection_options,
-        index=collection_options.index(st.session_state.current_collection) if st.session_state.current_collection in collection_options else 0
-    )
-    
-    # Handle new collection creation
-    if selected_collection == "Nueva colección...":
-        new_collection_name = st.text_input("Nombre de la nueva colección")
-        if st.button("Crear colección") and new_collection_name:
-            if new_collection_name not in st.session_state.collections:
-                st.session_state.collections[new_collection_name] = {
-                    "files": [], 
-                    "vectorstore": None,
-                    "last_updated": None
-                }
-                st.session_state.current_collection = new_collection_name
-                st.success(f"Colección '{new_collection_name}' creada")
-                st.experimental_rerun()
+    if loaded_kb:
+        st.session_state.collections["Base de conocimiento"] = {
+            "files": get_knowledge_base_pdfs(),
+            "vectorstore": loaded_kb,
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+        st.session_state.current_collection = "Base de conocimiento"
+        st.session_state.vectorstore = loaded_kb
+        st.session_state.knowledge_base_loaded = True
     else:
-        st.session_state.current_collection = selected_collection
-    
-    # Show collection info
-    if st.session_state.current_collection in st.session_state.collections:
-        collection = st.session_state.collections[st.session_state.current_collection]
-        st.write(f"Documentos en esta colección: {len(collection['files'])}")
-        if collection["last_updated"]:
-            st.write(f"Última actualización: {collection['last_updated']}")
-    
-    # Load saved vectorstore if available
-    if st.button("Cargar colección guardada"):
-        with st.spinner("Cargando colección guardada..."):
-            loaded_vs = load_vectorstore(st.session_state.current_collection)
-            if loaded_vs:
-                st.session_state.collections[st.session_state.current_collection]["vectorstore"] = loaded_vs
-                st.session_state.vectorstore = loaded_vs
-                st.success(f"✅ Colección '{st.session_state.current_collection}' cargada correctamente")
-            else:
-                st.warning(f"No se encontró una colección guardada para '{st.session_state.current_collection}'")
-    
-    # PDF loading method and other configs
-    st.subheader("Configuración del Procesamiento")
-    
-    pdf_loader_type = st.radio(
-        "Método para cargar PDFs",
-        ["PyPDFLoader (rápido)", "UnstructuredPDFLoader (robusto)"],
-        index=0
-    )
-    
-    chunk_size = st.slider(
-        "Tamaño de chunks",
-        min_value=500,
-        max_value=2000,
-        value=1000,
-        step=100
-    )
-    
-    chunk_overlap = st.slider(
-        "Superposición de chunks",
-        min_value=0,
-        max_value=500,
-        value=100,
-        step=50
-    )
-    
-    k_retrievals = st.slider(
-        "Número de chunks a recuperar",
-        min_value=1,
-        max_value=8,
-        value=4,
-        step=1
-    )
-    
-    temperature = st.slider(
-        "Temperatura",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.1,
-        step=0.1
-    )
-
-    st.markdown("---")
-    st.markdown("### Sobre esta aplicación")
-    st.info("Esta app fue desarrollada para crear un RAG especializado en cáncer de mama, permitiendo almacenar documentación y guías médicas y responder a preguntas basadas en evidencia científica.")
+        # Process knowledge base if vectorstore doesn't exist
+        vs = process_knowledge_base()
+        if vs:
+            st.session_state.collections["Base de conocimiento"] = {
+                "files": get_knowledge_base_pdfs(),
+                "vectorstore": vs,
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+            }
+            st.session_state.current_collection = "Base de conocimiento"
+            st.session_state.vectorstore = vs
+            st.session_state.knowledge_base_loaded = True
 
 # Function to process PDF files
 def process_pdf(file, temp_dir):
@@ -333,7 +391,7 @@ def process_pdf(file, temp_dir):
     
     # Load the PDF file using the selected loader
     try:
-        if "PyPDFLoader" in pdf_loader_type:
+        if "PyPDFLoader" in st.session_state.pdf_loader_type:
             loader = PyPDFLoader(file_path)
         else:
             loader = UnstructuredPDFLoader(file_path)
@@ -373,6 +431,158 @@ def process_pdf(file, temp_dir):
             st.error(f"Error con método alternativo: {str(e2)}")
             return []
 
+# Sidebar configuration with patient profile and document collections
+with st.sidebar:
+    st.header("Configuración")
+    
+    # Patient profile section
+    st.subheader("Perfil del Paciente")
+    with st.expander("Configurar perfil"):
+        st.session_state.patient_profile["age"] = st.number_input(
+            "Edad", 
+            min_value=18, 
+            max_value=100, 
+            value=st.session_state.patient_profile["age"]
+        )
+        
+        st.session_state.patient_profile["stage"] = st.selectbox(
+            "Etapa",
+            ["Pre-diagnóstico", "Recién diagnosticado", "En tratamiento", "Post-tratamiento", "Superviviente"],
+            index=["Pre-diagnóstico", "Recién diagnosticado", "En tratamiento", "Post-tratamiento", "Superviviente"].index(st.session_state.patient_profile["stage"])
+        )
+        
+        st.session_state.patient_profile["preferences"] = st.multiselect(
+            "Preferencias de información",
+            ["Información básica", "Detalles técnicos", "Opciones de tratamiento", "Estudios clínicos"],
+            default=st.session_state.patient_profile["preferences"]
+        )
+    
+    embedding_model = st.selectbox(
+        "Modelo para embeddings",
+        ["all-minilm", "nomic-embed-text", "llama3:8b"],
+        index=["all-minilm", "nomic-embed-text", "llama3:8b"].index(st.session_state.embedding_model) 
+            if st.session_state.embedding_model in ["all-minilm", "nomic-embed-text", "llama3:8b"] else 0
+    )
+    st.session_state.embedding_model = embedding_model
+
+    st.info("""
+    **Recomendación de modelos:**
+    - **all-minilm**: Rápido y eficiente, especializado en embeddings (recomendado)
+    - **nomic-embed-text**: Alta calidad para textos, si está disponible
+    - **llama3:8b**: Modelo general más grande, puede ser más lento
+    """)
+    # Collections management
+    st.subheader("Colecciones de Documentos")
+    
+    collection_options = list(st.session_state.collections.keys()) + ["Nueva colección..."]
+    selected_collection = st.selectbox(
+        "Seleccionar colección",
+        collection_options,
+        index=collection_options.index(st.session_state.current_collection) if st.session_state.current_collection in collection_options else 0
+    )
+    
+    # Handle new collection creation
+    if selected_collection == "Nueva colección...":
+        new_collection_name = st.text_input("Nombre de la nueva colección")
+        if st.button("Crear colección") and new_collection_name:
+            if new_collection_name not in st.session_state.collections:
+                st.session_state.collections[new_collection_name] = {
+                    "files": [], 
+                    "vectorstore": None,
+                    "last_updated": None
+                }
+                st.session_state.current_collection = new_collection_name
+                st.success(f"Colección '{new_collection_name}' creada")
+                st.experimental_rerun()
+    else:
+        st.session_state.current_collection = selected_collection
+    
+    # Show collection info
+    if st.session_state.current_collection in st.session_state.collections:
+        collection = st.session_state.collections[st.session_state.current_collection]
+        st.write(f"Documentos en esta colección: {len(collection['files'])}")
+        if collection["last_updated"]:
+            st.write(f"Última actualización: {collection['last_updated']}")
+    
+    # Show knowledge base status
+    st.subheader("Base de Conocimiento")
+    kb_files = get_knowledge_base_pdfs()
+    st.write(f"PDFs en base de conocimiento: {len(kb_files)}")
+    if kb_files:
+        if st.button("Ver contenido de la base de conocimiento"):
+            for file in kb_files:
+                st.write(f"- {file}")
+                
+    if st.button("Recargar base de conocimiento"):
+        with st.spinner("Recargando base de conocimiento..."):
+            kb_vs = process_knowledge_base()
+            if kb_vs:
+                st.session_state.collections["Base de conocimiento"] = {
+                    "files": get_knowledge_base_pdfs(), 
+                    "vectorstore": kb_vs,
+                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+                }
+                st.success("✅ Base de conocimiento recargada")
+            else:
+                st.warning("No se pudo cargar la base de conocimiento")
+    
+    # Load saved vectorstore if available
+    if st.button("Cargar colección guardada"):
+        with st.spinner("Cargando colección guardada..."):
+            loaded_vs = load_vectorstore(st.session_state.current_collection)
+            if loaded_vs:
+                st.session_state.collections[st.session_state.current_collection]["vectorstore"] = loaded_vs
+                st.session_state.vectorstore = loaded_vs
+                st.success(f"✅ Colección '{st.session_state.current_collection}' cargada correctamente")
+            else:
+                st.warning(f"No se encontró una colección guardada para '{st.session_state.current_collection}'")
+    
+    # PDF loading method and other configs
+    st.subheader("Configuración del Procesamiento")
+    
+    pdf_loader_type = st.radio(
+    "Método para cargar PDFs",
+    ["PyPDFLoader (rápido)", "UnstructuredPDFLoader (robusto)"],
+    index=0 if st.session_state.pdf_loader_type == "PyPDFLoader (rápido)" else 1
+    )
+    st.session_state.pdf_loader_type = pdf_loader_type
+    
+    chunk_size = st.slider(
+        "Tamaño de chunks",
+        min_value=500,
+        max_value=2000,
+        value=1000,
+        step=100
+    )
+    
+    chunk_overlap = st.slider(
+        "Superposición de chunks",
+        min_value=0,
+        max_value=500,
+        value=100,
+        step=50
+    )
+    
+    k_retrievals = st.slider(
+        "Número de chunks a recuperar",
+        min_value=1,
+        max_value=8,
+        value=4,
+        step=1
+    )
+    
+    temperature = st.slider(
+        "Temperatura",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.1,
+        step=0.1
+    )
+
+    st.markdown("---")
+    st.markdown("### Sobre esta aplicación")
+    st.info("Esta app fue desarrollada para crear un RAG especializado en cáncer de mama, permitiendo almacenar documentación y guías médicas y responder a preguntas basadas en evidencia científica.")
+
 # Main content
 st.header("1. Cargar Documentos")
 uploaded_files = st.file_uploader(
@@ -383,6 +593,9 @@ uploaded_files = st.file_uploader(
 
 # Show currently loaded collection
 st.caption(f"Colección actual: **{st.session_state.current_collection}**")
+
+# Option to add to knowledge base
+add_to_kb = st.checkbox("Añadir a la base de conocimiento permanente", value=False)
 
 process_button = st.button("Procesar Documentos")
 
@@ -397,6 +610,11 @@ if process_button and uploaded_files:
             
             for file in uploaded_files:
                 with st.status(f"Procesando {file.name}..."):
+                    # Add to knowledge base if requested
+                    if add_to_kb:
+                        if add_to_knowledge_base(file):
+                            st.success(f"✅ {file.name} añadido a la base de conocimiento")
+                    
                     docs = process_pdf(file, temp_dir)
                     if docs:
                         all_docs.extend(docs)
@@ -417,19 +635,47 @@ if process_button and uploaded_files:
                     try:
                         embeddings = OllamaEmbeddings(model="llama3:8b")
                         
+                        # Get collection to update
+                        target_collection = st.session_state.current_collection
+                        
                         # Create vectorstore
-                        vectorstore = FAISS.from_documents(chunks, embeddings)
+                        if target_collection in st.session_state.collections and st.session_state.collections[target_collection]["vectorstore"]:
+                            # Add to existing vectorstore
+                            existing_vs = st.session_state.collections[target_collection]["vectorstore"]
+                            vectorstore = FAISS.from_documents(chunks, embeddings)
+                            
+                            # Merge vectorstores
+                            existing_vs.merge_from(vectorstore)
+                            vectorstore = existing_vs
+                        else:
+                            # Create new vectorstore
+                            vectorstore = FAISS.from_documents(chunks, embeddings)
                         
                         # Update collection in session state
-                        st.session_state.collections[st.session_state.current_collection]["files"].extend(processed_files)
-                        st.session_state.collections[st.session_state.current_collection]["vectorstore"] = vectorstore
+                        if target_collection not in st.session_state.collections:
+                            st.session_state.collections[target_collection] = {
+                                "files": [],
+                                "vectorstore": None,
+                                "last_updated": None
+                            }
+                        
+                        st.session_state.collections[target_collection]["files"].extend(processed_files)
+                        st.session_state.collections[target_collection]["vectorstore"] = vectorstore
+                        st.session_state.collections[target_collection]["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                         st.session_state.vectorstore = vectorstore
                         
                         # Save vectorstore to disk
-                        if save_vectorstore(vectorstore, st.session_state.current_collection):
+                        if save_vectorstore(vectorstore, target_collection):
                             st.success("✅ Base de vectores guardada en disco")
                         
                         st.success(f"✅ Procesados {len(processed_files)} PDFs con éxito")
+                        
+                        # If added to KB, update the knowledge base collection
+                        if add_to_kb and "Base de conocimiento" in st.session_state.collections:
+                            refresh_kb = process_knowledge_base()
+                            if refresh_kb:
+                                st.success("✅ Base de conocimiento actualizada")
+                                
                     except Exception as e:
                         st.error(f"Error al crear embeddings: {str(e)}")
                         st.info("Verificar que Ollama está funcionando correctamente")
@@ -513,7 +759,7 @@ if current_collection_data.get("files"):
                 # Create LLM
                 llm = ChatOllama(model="llama3:8b", temperature=temperature)
                 
-                # CORRECCIÓN: Create conversational chain with memory y output_key especificado
+                # Create conversational chain with memory y output_key especificado
                 qa_chain = ConversationalRetrievalChain.from_llm(
                     llm=llm,
                     retriever=current_collection_data["vectorstore"].as_retriever(
@@ -521,7 +767,7 @@ if current_collection_data.get("files"):
                     ),
                     memory=st.session_state.memory,
                     return_source_documents=True,
-                    output_key="answer"  # Especificar la clave de salida que se usará
+                    output_key="answer"
                 )
                 
                 # Modify the question to include patient context

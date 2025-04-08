@@ -771,10 +771,26 @@ if current_collection_data.get("files"):
                 )
                 
                 # Modify the question to include patient context
+                # Añadir instrucciones para el modelo sobre idioma y análisis de sentimiento
                 contextualized_question = f"""
-                Pregunta de un paciente {st.session_state.patient_profile['age']} años, 
+                INSTRUCCIONES IMPORTANTES:
+                1. Responde SIEMPRE en español, independientemente del idioma de la pregunta.
+                2. Antes de responder, realiza un análisis de sentimiento de la pregunta para detectar si hay tono de preocupación, urgencia, tristeza, esperanza o neutralidad.
+                3. Adapta tu tono de respuesta según el sentimiento detectado:
+                - Si detectas preocupación: responde con empatía y tranquilidad, aportando información clara que alivie la ansiedad.
+                - Si detectas urgencia: sé conciso y directo, priorizando la información crítica.
+                - Si detectas tristeza: usa un tono cálido y comprensivo, enfatizando aspectos positivos y opciones de apoyo.
+                - Si detectas esperanza: refuerza con optimismo realista, destacando avances y tratamientos efectivos.
+                - Si el tono es neutro: mantén un tono profesional pero cercano y educativo.
+                4. Basa tus respuestas exclusivamente en información médica verificada presente en los documentos consultados.
+                5. Utiliza un vocabulario accesible para pacientes, explicando cualquier término médico complejo.
+
+                CONTEXTO DEL PACIENTE:
+                Paciente de {st.session_state.patient_profile['age']} años, 
                 en fase de '{st.session_state.patient_profile['stage']}',
-                con preferencias por '{', '.join(st.session_state.patient_profile['preferences'])}':
+                con preferencias por '{', '.join(st.session_state.patient_profile['preferences'])}'.
+
+                PREGUNTA DEL PACIENTE:
                 {user_question}
                 """
                 

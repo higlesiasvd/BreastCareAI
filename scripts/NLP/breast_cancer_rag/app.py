@@ -775,20 +775,25 @@ if current_collection_data.get("files"):
                 contextualized_question = f"""
                 INSTRUCCIONES IMPORTANTES:
                 1. Responde SIEMPRE en español, independientemente del idioma de la pregunta.
-                2. Antes de responder, realiza un análisis de sentimiento de la pregunta para detectar si hay tono de preocupación, urgencia, tristeza, esperanza o neutralidad.
-                3. Adapta tu tono de respuesta según el sentimiento detectado:
-                - Si detectas preocupación: responde con empatía y tranquilidad, aportando información clara que alivie la ansiedad.
-                - Si detectas urgencia: sé conciso y directo, priorizando la información crítica.
-                - Si detectas tristeza: usa un tono cálido y comprensivo, enfatizando aspectos positivos y opciones de apoyo.
-                - Si detectas esperanza: refuerza con optimismo realista, destacando avances y tratamientos efectivos.
-                - Si el tono es neutro: mantén un tono profesional pero cercano y educativo.
-                4. Basa tus respuestas exclusivamente en información médica verificada presente en los documentos consultados.
-                5. Utiliza un vocabulario accesible para pacientes, explicando cualquier término médico complejo.
+                2. Realiza un análisis de sentimiento de la pregunta y adapta tu tono adecuadamente.
+                3. Estructura tus respuestas en este formato:
+                - RESPUESTA DIRECTA: Breve respuesta a la pregunta principal
+                - CONTEXTO AMPLIADO: Información detallada y explicativa 
+                - RECOMENDACIONES PRÁCTICAS: Pasos concretos o sugerencias aplicables
+                - IMPORTANTE: Advertencias o consideraciones especiales si existen
+                4. Cuando cites información, indica claramente de qué documento proviene.
+                5. Si hay información contradictoria entre las fuentes, señálalo transparentemente.
+                6. Expresa el nivel de consenso médico sobre el tema (alto, moderado o bajo).
+                7. Si la pregunta está fuera del ámbito de la documentación, indícalo claramente y ofrece información general basada en consensos médicos verificados.
+                8. Responde a todas las partes de preguntas múltiples o complejas.
+                9. Usa ejemplos prácticos cuando sea apropiado para mejorar la comprensión.
+                10. Incluye referencias a las secciones relevantes de los documentos consultados.
 
                 CONTEXTO DEL PACIENTE:
                 Paciente de {st.session_state.patient_profile['age']} años, 
                 en fase de '{st.session_state.patient_profile['stage']}',
-                con preferencias por '{', '.join(st.session_state.patient_profile['preferences'])}'.
+                preferencias de información: '{', '.join(st.session_state.patient_profile['preferences'])}',
+                historial de consultas previas: {', '.join(st.session_state.previous_topics) if 'previous_topics' in st.session_state else 'Ninguna previa'}.
 
                 PREGUNTA DEL PACIENTE:
                 {user_question}

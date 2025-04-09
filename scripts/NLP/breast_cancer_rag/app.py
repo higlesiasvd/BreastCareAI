@@ -12,6 +12,30 @@ st.set_page_config(page_title="Sistema RAG para Cáncer de Mama", page_icon="�
 st.title("🎗️ Sistema de RAG para Asesoramiento sobre Cáncer de Mama")
 st.markdown("Accede a información médica verificada sobre cáncer de mama")
 
+# Estilos personalizados para mejorar la interfaz del chat
+st.markdown("""
+<style>
+div.stChatMessage {
+    padding: 10px;
+    border-radius: 15px;
+    margin-bottom: 10px;
+}
+div.stChatMessage[data-testid="stChatMessageContent"] p {
+    font-size: 16px !important;
+}
+div.stChatMessage[data-testid="stChatMessage"] div[data-testid="stChatMessageContent"] {
+    padding: 10px;
+}
+div.stChatMessage.user {
+    background-color: #e6f7ff;
+    text-align: right;
+}
+div.stChatMessage.assistant {
+    background-color: #f0f2f6;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Create required directories if they don't exist
 os.makedirs("vectorstores", exist_ok=True)
 os.makedirs("knowledge_base", exist_ok=True)
@@ -87,6 +111,8 @@ if 'memory' not in st.session_state:
         return_messages=True,
         output_key="answer"
     )
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
 if 'current_question' not in st.session_state:
     st.session_state.current_question = ""
 if 'patient_profile' not in st.session_state:
@@ -97,6 +123,8 @@ if 'patient_profile' not in st.session_state:
     }
 if 'knowledge_base_loaded' not in st.session_state:
     st.session_state.knowledge_base_loaded = False
+if 'previous_topics' not in st.session_state:
+    st.session_state.previous_topics = []
 
 if 'pdf_loader_type' not in st.session_state:
     st.session_state.pdf_loader_type = "PyPDFLoader (rápido)"
@@ -412,7 +440,7 @@ def process_pdf(file, temp_dir):
         # Try alternative method if the first one fails
         try:
             st.info(f"Intentando método alternativo para {file.name}...")
-            if "PyPDFLoader" in pdf_loader_type:
+            if "PyPDFLoader" in st.session_state.pdf_loader_type:
                 loader = UnstructuredPDFLoader(file_path)
             else:
                 loader = PyPDFLoader(file_path)
@@ -434,6 +462,29 @@ def process_pdf(file, temp_dir):
 # Sidebar configuration with patient profile and document collections
 with st.sidebar:
     st.header("Configuración")
+    
+    # Control de conversación
+    st.subheader("Control de Conversación")
+    if st.button("Nueva Conversación"):
+        # Reiniciar memoria y mensajes
+        st.session_state.messages = []
+        st.session_state.memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            return_messages=True,
+            output_key="answer"
+        )
+        st.session_state.previous_topics = []
+        st.success("Conversación reiniciada")
+        st.experimental_rerun()
+    
+    # Exportar conversación
+    if st.session_state.messages:
+        chat_export = "\n\n".join([f"{'Usuario' if m['role']=='user' else 'Asistente'}: {m['content']}" for m in st.session_state.messages])
+        st.download_button(
+            "Descargar conversación", 
+            chat_export, 
+            file_name=f"conversacion-cancer-mama-{datetime.now().strftime('%Y%m%d-%H%M')}.txt"
+        )
     
     # Patient profile section
     st.subheader("Perfil del Paciente")
@@ -583,117 +634,119 @@ with st.sidebar:
     st.markdown("### Sobre esta aplicación")
     st.info("Esta app fue desarrollada para crear un RAG especializado en cáncer de mama, permitiendo almacenar documentación y guías médicas y responder a preguntas basadas en evidencia científica.")
 
-# Main content
-st.header("1. Cargar Documentos")
-uploaded_files = st.file_uploader(
-    "Carga tus archivos PDF con información sobre cáncer de mama",
-    type=["pdf"],
-    accept_multiple_files=True
-)
+# Main content - Sections: 1. Document Upload, 2. Chat Interface
+tab1, tab2 = st.tabs(["📄 Cargar Documentos", "💬 Conversación"])
 
-# Show currently loaded collection
-st.caption(f"Colección actual: **{st.session_state.current_collection}**")
+# Tab 1: Document Upload
+with tab1:
+    st.header("Cargar Documentos")
+    uploaded_files = st.file_uploader(
+        "Carga tus archivos PDF con información sobre cáncer de mama",
+        type=["pdf"],
+        accept_multiple_files=True
+    )
 
-# Option to add to knowledge base
-add_to_kb = st.checkbox("Añadir a la base de conocimiento permanente", value=False)
+    # Show currently loaded collection
+    st.caption(f"Colección actual: **{st.session_state.current_collection}**")
 
-process_button = st.button("Procesar Documentos")
+    # Option to add to knowledge base
+    add_to_kb = st.checkbox("Añadir a la base de conocimiento permanente", value=False)
 
-# Document processing
-if process_button and uploaded_files:
-    with st.spinner("Procesando documentos..."):
-        # Create temporary directory
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Process each PDF
-            all_docs = []
-            processed_files = []
-            
-            for file in uploaded_files:
-                with st.status(f"Procesando {file.name}..."):
-                    # Add to knowledge base if requested
-                    if add_to_kb:
-                        if add_to_knowledge_base(file):
-                            st.success(f"✅ {file.name} añadido a la base de conocimiento")
-                    
-                    docs = process_pdf(file, temp_dir)
-                    if docs:
-                        all_docs.extend(docs)
-                        processed_files.append(file.name)
-            
-            if all_docs:
-                # Split text into chunks
-                with st.status("Dividiendo texto en chunks..."):
-                    text_splitter = RecursiveCharacterTextSplitter(
-                        chunk_size=chunk_size,
-                        chunk_overlap=chunk_overlap
-                    )
-                    chunks = text_splitter.split_documents(all_docs)
-                    st.write(f"Creados {len(chunks)} chunks de texto")
+    process_button = st.button("Procesar Documentos")
+
+    # Document processing
+    if process_button and uploaded_files:
+        with st.spinner("Procesando documentos..."):
+            # Create temporary directory
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Process each PDF
+                all_docs = []
+                processed_files = []
                 
-                # Create embeddings with Ollama
-                with st.status("Creando embeddings con Ollama..."):
-                    try:
-                        embeddings = OllamaEmbeddings(model="llama3:8b")
+                for file in uploaded_files:
+                    with st.status(f"Procesando {file.name}..."):
+                        # Add to knowledge base if requested
+                        if add_to_kb:
+                            if add_to_knowledge_base(file):
+                                st.success(f"✅ {file.name} añadido a la base de conocimiento")
                         
-                        # Get collection to update
-                        target_collection = st.session_state.current_collection
-                        
-                        # Create vectorstore
-                        if target_collection in st.session_state.collections and st.session_state.collections[target_collection]["vectorstore"]:
-                            # Add to existing vectorstore
-                            existing_vs = st.session_state.collections[target_collection]["vectorstore"]
-                            vectorstore = FAISS.from_documents(chunks, embeddings)
+                        docs = process_pdf(file, temp_dir)
+                        if docs:
+                            all_docs.extend(docs)
+                            processed_files.append(file.name)
+                
+                if all_docs:
+                    # Split text into chunks
+                    with st.status("Dividiendo texto en chunks..."):
+                        text_splitter = RecursiveCharacterTextSplitter(
+                            chunk_size=chunk_size,
+                            chunk_overlap=chunk_overlap
+                        )
+                        chunks = text_splitter.split_documents(all_docs)
+                        st.write(f"Creados {len(chunks)} chunks de texto")
+                    
+                    # Create embeddings with Ollama
+                    with st.status("Creando embeddings con Ollama..."):
+                        try:
+                            embeddings = OllamaEmbeddings(model=st.session_state.embedding_model)
                             
-                            # Merge vectorstores
-                            existing_vs.merge_from(vectorstore)
-                            vectorstore = existing_vs
-                        else:
-                            # Create new vectorstore
-                            vectorstore = FAISS.from_documents(chunks, embeddings)
-                        
-                        # Update collection in session state
-                        if target_collection not in st.session_state.collections:
-                            st.session_state.collections[target_collection] = {
-                                "files": [],
-                                "vectorstore": None,
-                                "last_updated": None
-                            }
-                        
-                        st.session_state.collections[target_collection]["files"].extend(processed_files)
-                        st.session_state.collections[target_collection]["vectorstore"] = vectorstore
-                        st.session_state.collections[target_collection]["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        st.session_state.vectorstore = vectorstore
-                        
-                        # Save vectorstore to disk
-                        if save_vectorstore(vectorstore, target_collection):
-                            st.success("✅ Base de vectores guardada en disco")
-                        
-                        st.success(f"✅ Procesados {len(processed_files)} PDFs con éxito")
-                        
-                        # If added to KB, update the knowledge base collection
-                        if add_to_kb and "Base de conocimiento" in st.session_state.collections:
-                            refresh_kb = process_knowledge_base()
-                            if refresh_kb:
-                                st.success("✅ Base de conocimiento actualizada")
+                            # Get collection to update
+                            target_collection = st.session_state.current_collection
+                            
+                            # Create vectorstore
+                            if target_collection in st.session_state.collections and st.session_state.collections[target_collection]["vectorstore"]:
+                                # Add to existing vectorstore
+                                existing_vs = st.session_state.collections[target_collection]["vectorstore"]
+                                vectorstore = FAISS.from_documents(chunks, embeddings)
                                 
-                    except Exception as e:
-                        st.error(f"Error al crear embeddings: {str(e)}")
-                        st.info("Verificar que Ollama está funcionando correctamente")
+                                # Merge vectorstores
+                                existing_vs.merge_from(vectorstore)
+                                vectorstore = existing_vs
+                            else:
+                                # Create new vectorstore
+                                vectorstore = FAISS.from_documents(chunks, embeddings)
+                            
+                            # Update collection in session state
+                            if target_collection not in st.session_state.collections:
+                                st.session_state.collections[target_collection] = {
+                                    "files": [],
+                                    "vectorstore": None,
+                                    "last_updated": None
+                                }
+                            
+                            st.session_state.collections[target_collection]["files"].extend(processed_files)
+                            st.session_state.collections[target_collection]["vectorstore"] = vectorstore
+                            st.session_state.collections[target_collection]["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                            st.session_state.vectorstore = vectorstore
+                            
+                            # Save vectorstore to disk
+                            if save_vectorstore(vectorstore, target_collection):
+                                st.success("✅ Base de vectores guardada en disco")
+                            
+                            st.success(f"✅ Procesados {len(processed_files)} PDFs con éxito")
+                            
+                            # If added to KB, update the knowledge base collection
+                            if add_to_kb and "Base de conocimiento" in st.session_state.collections:
+                                refresh_kb = process_knowledge_base()
+                                if refresh_kb:
+                                    st.success("✅ Base de conocimiento actualizada")
+                                    
+                        except Exception as e:
+                            st.error(f"Error al crear embeddings: {str(e)}")
+                            st.info("Verificar que Ollama está funcionando correctamente")
 
-# Show processed files for current collection
-current_collection_data = st.session_state.collections.get(st.session_state.current_collection, {})
-if current_collection_data.get("files"):
-    st.header("2. Documentos Procesados")
-    st.subheader(f"Colección: {st.session_state.current_collection}")
-    
-    for name in current_collection_data.get("files", []):
-        st.markdown(f"- `{name}`")
-    
-    # Section for asking questions about the documents
-    st.header("3. Preguntas sobre Cáncer de Mama")
-    
-    # Frequently asked questions section
-    st.subheader("Preguntas Frecuentes")
+    # Show processed files for current collection
+    current_collection_data = st.session_state.collections.get(st.session_state.current_collection, {})
+    if current_collection_data.get("files"):
+        st.subheader("Documentos Procesados")
+        st.caption(f"Colección: {st.session_state.current_collection}")
+        
+        for name in current_collection_data.get("files", []):
+            st.markdown(f"- `{name}`")
+
+# Tab 2: Chat Interface
+with tab2:
+    st.header("Conversación sobre Cáncer de Mama")
     
     # Customize FAQs based on patient stage
     stage = st.session_state.patient_profile["stage"]
@@ -735,229 +788,213 @@ if current_collection_data.get("files"):
             "¿Cómo puedo apoyar a otras personas con cáncer de mama?"
         ]
     
-    # Display FAQs in a grid
-    cols = st.columns(2)
-    for i, question in enumerate(faq_questions):
-        with cols[i % 2]:
-            if st.button(question, key=f"faq_{i}"):
-                st.session_state.current_question = question
-    
-    # Question input
-    user_question = st.text_input(
-        "Escribe tu pregunta:",
-        value=st.session_state.current_question
-    )
-    
-    # Clear the current question after it's been used
-    if user_question == st.session_state.current_question:
-        st.session_state.current_question = ""
-        
-    # Process the question
-    if user_question and current_collection_data.get("vectorstore"):
-        with st.spinner("Generando respuesta..."):
-            try:
-                # Create LLM
-                llm = ChatOllama(model="llama3:8b", temperature=temperature)
-                
-                # Create conversational chain with memory y output_key especificado
-                qa_chain = ConversationalRetrievalChain.from_llm(
-                    llm=llm,
-                    retriever=current_collection_data["vectorstore"].as_retriever(
-                        search_kwargs={"k": k_retrievals}
-                    ),
-                    memory=st.session_state.memory,
-                    return_source_documents=True,
-                    output_key="answer"
-                )
-                
-                # Modify the question to include patient context
-                # Añadir instrucciones para el modelo sobre idioma y análisis de sentimiento
-                contextualized_question = f"""
-                INSTRUCCIONES IMPORTANTES:
-                1. Responde SIEMPRE en español, independientemente del idioma de la pregunta.
-                2. Realiza un análisis de sentimiento de la pregunta y adapta tu tono adecuadamente.
-                3. Estructura tus respuestas en este formato:
-                - RESPUESTA DIRECTA: Breve respuesta a la pregunta principal
-                - CONTEXTO AMPLIADO: Información detallada y explicativa 
-                - RECOMENDACIONES PRÁCTICAS: Pasos concretos o sugerencias aplicables
-                - IMPORTANTE: Advertencias o consideraciones especiales si existen
-                4. Cuando cites información, indica claramente de qué documento proviene.
-                5. Si hay información contradictoria entre las fuentes, señálalo transparentemente.
-                6. Expresa el nivel de consenso médico sobre el tema (alto, moderado o bajo).
-                7. Si la pregunta está fuera del ámbito de la documentación, indícalo claramente y ofrece información general basada en consensos médicos verificados.
-                8. Responde a todas las partes de preguntas múltiples o complejas.
-                9. Usa ejemplos prácticos cuando sea apropiado para mejorar la comprensión.
-                10. Incluye referencias a las secciones relevantes de los documentos consultados.
-
-                CONTEXTO DEL PACIENTE:
-                Paciente de {st.session_state.patient_profile['age']} años, 
-                en fase de '{st.session_state.patient_profile['stage']}',
-                preferencias de información: '{', '.join(st.session_state.patient_profile['preferences'])}',
-                historial de consultas previas: {', '.join(st.session_state.previous_topics) if 'previous_topics' in st.session_state else 'Ninguna previa'}.
-
-                PREGUNTA DEL PACIENTE:
-                {user_question}
-                """
-                
-                # Generate answer
-                import time
-                start_time = time.time()
-                response = qa_chain({"question": contextualized_question})
-                end_time = time.time()
-                
-                # Verify medical accuracy
-                confidence, disclaimer = verify_medical_accuracy(response["answer"])
-                
-                # Show answer with highlighted medical terms
-                st.markdown("### Respuesta:")
-                
-                # Add color-coding based on confidence
-                confidence_color = {
-                    "Alta": "green",
-                    "Media": "orange",
-                    "Baja": "red"
-                }
-                
-                st.markdown(f"""
-                <div style="border-left: 5px solid {confidence_color[confidence]}; padding-left: 10px;">
-                {highlight_medical_terms(response["answer"])}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Show disclaimer based on verification
-                st.markdown(disclaimer)
-                
-                # Show context used to generate the answer
-                with st.expander("Ver fuentes utilizadas"):
-                    for i, doc in enumerate(response["source_documents"]):
-                        st.markdown(f"**Fuente {i+1}**: {doc.metadata.get('file_name', 'Desconocido')}")
-                        st.text(doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content)
-                        st.markdown("---")
-                
-                st.info(f"Respuesta generada en {(end_time - start_time):.2f} segundos")
-                
-                # Show additional resources
-                st.subheader("Recursos Adicionales")
-                resources_cols = st.columns(3)
-                
-                with resources_cols[0]:
-                    st.info("📋 **Guías Clínicas**\nRecursos oficiales para pacientes y familias.")
-                    if st.button("Ver guías"):
-                        st.markdown("""
-                        - [Asociación Española Contra el Cáncer](https://www.contraelcancer.es/es/todo-sobre-cancer/tipos-cancer/cancer-mama)
-                        - [American Cancer Society](https://www.cancer.org/es/cancer/tipos/cancer-de-seno.html)
-                        - [Breast Cancer Now](https://breastcancernow.org/information-support)
-                        """)
-                
-                with resources_cols[1]:
-                    st.success("🏥 **Centros Especializados**\nCentros de referencia para cáncer de mama.")
-                    if st.button("Buscar centros"):
-                        st.markdown("""
-                        Para encontrar centros especializados en su área, consulte:
+    # Display FAQs in a expandable section
+    with st.expander("Preguntas Frecuentes", expanded=False):
+        cols = st.columns(2)
+        for i, question in enumerate(faq_questions):
+            with cols[i % 2]:
+                if st.button(question, key=f"faq_{i}"):
+                    if "messages" not in st.session_state:
+                        st.session_state.messages = []
                         
-                        - El directorio de la Sociedad Española de Oncología Médica
-                        - Unidades CSUR del Sistema Nacional de Salud
-                        - Centros con certificación EUSOMA (European Society of Breast Cancer Specialists)
-                        """)
-                
-                with resources_cols[2]:
-                    st.warning("👩‍⚕️ **Apoyo Psicológico**\nRecursos de apoyo emocional durante el proceso.")
-                    if st.button("Opciones de apoyo"):
-                        st.markdown("""
-                        - Grupos de apoyo locales para pacientes
-                        - Servicios de psicooncología en hospitales
-                        - Asociaciones de pacientes como FECMA (Federación Española de Cáncer de Mama)
-                        - Líneas telefónicas de apoyo: AECC (900 100 036)
-                        """)
-                
-                # Follow-up system
-                st.subheader("Mi Plan de Seguimiento")
-                
-                tabs = st.tabs(["Calendario", "Medicación", "Ejercicios", "Nutrición"])
-                
-                with tabs[0]:
-                    cal_cols = st.columns(2)
-                    with cal_cols[0]:
-                        st.date_input("Próxima cita médica")
-                    with cal_cols[1]:
-                        st.time_input("Hora de la cita")
+                    # Añadir pregunta al historial
+                    st.session_state.messages.append({"role": "user", "content": question})
                     
-                    # Simple table for appointments
-                    if "appointments" not in st.session_state:
-                        st.session_state.appointments = []
+                    # Procesar esta pregunta al final, antes del chat_input
+                    if question not in st.session_state.previous_topics:
+                        st.session_state.previous_topics.append(question)
                     
-                    new_appointment = st.text_input("Descripción de la cita")
-                    if st.button("Guardar cita") and new_appointment:
-                        st.session_state.appointments.append(new_appointment)
+                    # Recargar la página para mostrar la pregunta y generar la respuesta
+                    st.experimental_rerun()
+                        
+    # Contenedor para el historial del chat
+    chat_container = st.container()
+    
+    # Mostrar mensajes previos
+    with chat_container:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                if message["role"] == "assistant":
+                    # Para respuestas del asistente, mantén el formato con términos médicos resaltados
+                    st.markdown(highlight_medical_terms(message["content"]), unsafe_allow_html=True)
+                else:
+                    # Para mensajes del usuario, muestra el texto normal
+                    st.markdown(message["content"])
+    
+    # Input del usuario usando chat_input
+    user_question = st.chat_input("Escribe tu pregunta sobre cáncer de mama")
+    
+    # Procesar pregunta del usuario (de chat_input o botón FAQ)
+    if user_question:
+        # Añadir pregunta al historial
+        st.session_state.messages.append({"role": "user", "content": user_question})
+        
+        # Actualizar temas previos para el contexto
+        if user_question not in st.session_state.previous_topics:
+            st.session_state.previous_topics.append(user_question)
+        
+        # Recargar para mostrar la pregunta
+        st.experimental_rerun()
+    
+    # Procesar última pregunta del historial si aún no tiene respuesta
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        # Obtener la última pregunta sin respuesta
+        last_question = st.session_state.messages[-1]["content"]
+        
+        # Mostrar el mensaje del usuario
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(last_question)
+        
+        # Procesar la pregunta si tenemos un vectorstore
+        current_collection_data = st.session_state.collections.get(st.session_state.current_collection, {})
+        if current_collection_data.get("vectorstore"):
+            with st.spinner("Generando respuesta..."):
+                try:
+                    # Crear LLM
+                    llm = ChatOllama(model="llama3:8b", temperature=temperature)
                     
-                    if st.session_state.appointments:
-                        for i, appt in enumerate(st.session_state.appointments):
-                            st.text(f"{i+1}. {appt}")
-                
-                with tabs[1]:
-                    # Simple medication tracker
-                    med_cols = st.columns(3)
-                    with med_cols[0]:
-                        med_name = st.text_input("Nombre del medicamento")
-                    with med_cols[1]:
-                        med_dose = st.text_input("Dosis")
-                    with med_cols[2]:
-                        med_freq = st.selectbox(
-                            "Frecuencia", 
-                            ["Una vez al día", "Dos veces al día", "Tres veces al día", "Cada 12 horas", "Semanal"]
-                        )
+                    # Crear chain conversacional con memoria
+                    qa_chain = ConversationalRetrievalChain.from_llm(
+                        llm=llm,
+                        retriever=current_collection_data["vectorstore"].as_retriever(
+                            search_kwargs={"k": k_retrievals}
+                        ),
+                        memory=st.session_state.memory,
+                        return_source_documents=True,
+                        output_key="answer"
+                    )
                     
-                    if st.button("Agregar medicamento") and med_name:
-                        if "medications" not in st.session_state:
-                            st.session_state.medications = []
-                        st.session_state.medications.append({"name": med_name, "dose": med_dose, "frequency": med_freq})
+                    # Añadir contexto del paciente e historial a la pregunta
+                    contextualized_question = f"""
+                    INSTRUCCIONES IMPORTANTES:
+                    1. Responde SIEMPRE en español, independientemente del idioma de la pregunta.
+                    2. Realiza un análisis de sentimiento de la pregunta y adapta tu tono adecuadamente.
+                    3. Estructura tus respuestas en este formato:
+                    - RESPUESTA DIRECTA: Breve respuesta a la pregunta principal
+                    - CONTEXTO AMPLIADO: Información detallada y explicativa 
+                    - RECOMENDACIONES PRÁCTICAS: Pasos concretos o sugerencias aplicables
+                    - IMPORTANTE: Advertencias o consideraciones especiales si existen
+                    4. Cuando cites información, indica claramente de qué documento proviene.
+                    5. Si hay información contradictoria entre las fuentes, señálalo transparentemente.
+                    6. Expresa el nivel de consenso médico sobre el tema (alto, moderado o bajo).
+                    7. Si la pregunta está fuera del ámbito de la documentación, indícalo claramente y ofrece información general basada en consensos médicos verificados.
+                    8. Responde a todas las partes de preguntas múltiples o complejas.
+                    9. Usa ejemplos prácticos cuando sea apropiado para mejorar la comprensión.
+                    10. Incluye referencias a las secciones relevantes de los documentos consultados.
+
+                    CONTEXTO DEL PACIENTE:
+                    Paciente de {st.session_state.patient_profile['age']} años, 
+                    en fase de '{st.session_state.patient_profile['stage']}',
+                    preferencias de información: '{', '.join(st.session_state.patient_profile['preferences'])}',
+                    historial de consultas previas: {', '.join(st.session_state.previous_topics) if st.session_state.previous_topics else 'Ninguna previa'}.
+
+                    IMPORTANTE SOBRE LA CONVERSACIÓN:
+                    Esta es una conversación continua. Debes considerar preguntas y respuestas anteriores.
+                    Si la pregunta actual hace referencia a información previa, responde en consecuencia.
+                    Si la pregunta parece ambigua, intenta interpretarla en el contexto de la conversación.
+
+                    PREGUNTA DEL PACIENTE:
+                    {last_question}
+                    """
                     
-                    if "medications" in st.session_state and st.session_state.medications:
-                        # Create a dataframe for better display
-                        med_df = pd.DataFrame(st.session_state.medications)
-                        st.dataframe(med_df)
-                
-                with tabs[2]:
-                    st.markdown("""
-                    ### Ejercicios Recomendados
+                    # Generar respuesta
+                    import time
+                    start_time = time.time()
+                    response = qa_chain({"question": contextualized_question})
+                    end_time = time.time()
                     
-                    En función de su etapa de tratamiento, consulte con su médico antes de iniciar cualquier rutina de ejercicios. 
-                    Algunos ejercicios que pueden ser beneficiosos:
+                    # Verificar precisión médica
+                    confidence, disclaimer = verify_medical_accuracy(response["answer"])
                     
-                    - Caminatas suaves (comenzando con 10-15 minutos)
-                    - Ejercicios de movilidad para el brazo y hombro
-                    - Yoga adaptado para pacientes de cáncer de mama
-                    - Natación (especialmente en etapas de recuperación)
+                    # Añadir la respuesta al historial
+                    st.session_state.messages.append({"role": "assistant", "content": response["answer"]})
                     
-                    **Importante**: Evite ejercicios de alto impacto sin aprobación médica.
-                    """)
-                
-                with tabs[3]:
-                    st.markdown("""
-                    ### Recomendaciones Nutricionales
+                    # Mostrar respuesta en el chat con términos médicos resaltados
+                    with chat_container:
+                        with st.chat_message("assistant"):
+                            # Añadir color según el nivel de confianza
+                            confidence_color = {
+                                "Alta": "green",
+                                "Media": "orange",
+                                "Baja": "red"
+                            }
+                            
+                            st.markdown(f"""
+                            <div style="border-left: 5px solid {confidence_color[confidence]}; padding-left: 10px;">
+                            {highlight_medical_terms(response["answer"])}
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Mostrar disclaimer según verificación
+                            st.markdown(disclaimer)
+                            
+                            # Mostrar tiempo de generación
+                            st.caption(f"Respuesta generada en {(end_time - start_time):.2f} segundos")
+                            
+                            # Mostrar fuentes en un expander
+                            with st.expander("Ver fuentes utilizadas"):
+                                for i, doc in enumerate(response["source_documents"]):
+                                    st.markdown(f"**Fuente {i+1}**: {doc.metadata.get('file_name', 'Desconocido')}")
+                                    st.text(doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content)
+                                    st.markdown("---")
                     
-                    Una alimentación equilibrada es fundamental durante todo el proceso:
+                    # Mostrar recursos adicionales debajo de la respuesta
+                    with chat_container:
+                        # Crear columnas para recursos adicionales
+                        st.subheader("Recursos Adicionales")
+                        resources_cols = st.columns(3)
+                        
+                        with resources_cols[0]:
+                            st.info("📋 **Guías Clínicas**\nRecursos oficiales para pacientes y familias.")
+                            if st.button("Ver guías", key="guias_btn"):
+                                st.markdown("""
+                                - [Asociación Española Contra el Cáncer](https://www.contraelcancer.es/es/todo-sobre-cancer/tipos-cancer/cancer-mama)
+                                - [American Cancer Society](https://www.cancer.org/es/cancer/tipos/cancer-de-seno.html)
+                                - [Breast Cancer Now](https://breastcancernow.org/information-support)
+                                """)
+                        
+                        with resources_cols[1]:
+                            st.success("🏥 **Centros Especializados**\nCentros de referencia para cáncer de mama.")
+                            if st.button("Buscar centros", key="centros_btn"):
+                                st.markdown("""
+                                Para encontrar centros especializados en su área, consulte:
+                                
+                                - El directorio de la Sociedad Española de Oncología Médica
+                                - Unidades CSUR del Sistema Nacional de Salud
+                                - Centros con certificación EUSOMA (European Society of Breast Cancer Specialists)
+                                """)
+                        
+                        with resources_cols[2]:
+                            st.warning("👩‍⚕️ **Apoyo Psicológico**\nRecursos de apoyo emocional durante el proceso.")
+                            if st.button("Opciones de apoyo", key="apoyo_btn"):
+                                st.markdown("""
+                                - Grupos de apoyo locales para pacientes
+                                - Servicios de psicooncología en hospitales
+                                - Asociaciones de pacientes como FECMA (Federación Española de Cáncer de Mama)
+                                - Líneas telefónicas de apoyo: AECC (900 100 036)
+                                """)
                     
-                    - Priorice alimentos frescos y no procesados
-                    - Incluya proteínas magras (pollo, pescado, legumbres)
-                    - Consuma abundantes frutas y verduras
-                    - Mantenga una buena hidratación (8 vasos de agua al día)
-                    - Limite el consumo de alcohol y evite el tabaco
-                    
-                    Durante la quimioterapia, puede ser útil:
-                    - Comidas pequeñas y frecuentes
-                    - Alimentos a temperatura ambiente
-                    - Evitar olores fuertes
-                    """)
-                
-            except Exception as e:
-                st.error(f"Error al generar respuesta: {str(e)}")
-                st.code(str(e), language="python")
-else:
-    st.info("Carga y procesa documentos PDF primero para poder hacer preguntas sobre ellos, o selecciona una colección guardada.")
+                except Exception as e:
+                    with chat_container:
+                        with st.chat_message("assistant"):
+                            st.error(f"Error al generar respuesta: {str(e)}")
+                            st.code(str(e), language="python")
+        else:
+            with chat_container:
+                with st.chat_message("assistant"):
+                    st.warning("No hay documentos procesados para responder a tu pregunta. Por favor, carga y procesa documentos en la pestaña 'Cargar Documentos' primero.")
 
 # Debug information
-with st.expander("Información de depuración"):
+with st.expander("Información de depuración", expanded=False):
     st.write(f"Python version: {sys.version}")
     st.write(f"Directorio actual: {os.getcwd()}")
     st.write(f"Estado de la sesión: {list(st.session_state.keys())}")
+    st.write(f"Número de mensajes en el historial: {len(st.session_state.messages)}")
+    st.write(f"Temas previos: {st.session_state.previous_topics}")
+    
+    # Ver mensajes en detalle
+    if st.checkbox("Ver historial de mensajes completo"):
+        for i, msg in enumerate(st.session_state.messages):
+            st.write(f"Mensaje {i+1} - Rol: {msg['role']}")
+            st.text(msg['content'][:200] + "..." if len(msg['content']) > 200 else msg['content'])

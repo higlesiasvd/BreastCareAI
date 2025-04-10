@@ -1,4 +1,5 @@
 import streamlit as st
+
 import tempfile
 import os
 import sys
@@ -7,6 +8,11 @@ from datetime import datetime
 import re
 import pandas as pd
 
+try:
+    from voice_processor import add_voice_controls_to_sidebar, add_voice_interface_to_chat, audio_recorder_and_transcriber
+    voice_available = True
+except ImportError:
+    voice_available = False
 # Page settings
 st.set_page_config(page_title="Sistema RAG para Cáncer de Mama", page_icon="🎗️", layout="wide")
 st.title("🎗️ Sistema de RAG para Asesoramiento sobre Cáncer de Mama")
@@ -587,6 +593,13 @@ with st.sidebar:
                 st.success(f"✅ Colección '{st.session_state.current_collection}' cargada correctamente")
             else:
                 st.warning(f"No se encontró una colección guardada para '{st.session_state.current_collection}'")
+
+    # Voice control configuration
+    if voice_available:
+        voice_config = add_voice_controls_to_sidebar()
+        use_voice = voice_config.get("enabled", False)
+    else:
+        use_voice = False
     
     # PDF loading method and other configs
     st.subheader("Configuración del Procesamiento")
@@ -820,6 +833,35 @@ with tab2:
                 else:
                     # Para mensajes del usuario, muestra el texto normal
                     st.markdown(message["content"])
+    # Voice interface
+    if voice_available:
+        # Si ya hay una transcripción, mostrarla
+        if 'transcription' in st.session_state and st.session_state.transcription:
+            voice_text = st.session_state.transcription
+            
+            # Limpiar para la próxima vez
+            temp_transcription = voice_text
+            st.session_state.transcription = None
+            st.session_state.recording_state = "idle"
+            
+            # Añadir al historial y procesar
+            st.session_state.messages.append({"role": "user", "content": temp_transcription})
+            if temp_transcription not in st.session_state.previous_topics:
+                st.session_state.previous_topics.append(temp_transcription)
+            st.experimental_rerun()
+        else:
+            # Mostrar interfaz de grabación
+            try:
+                # Mostrar interfaz de grabación
+                voice_text = audio_recorder_and_transcriber()
+            except Exception as e:
+                st.error(f"Error en la grabación de audio: {str(e)}")
+                st.error("Detalles técnicos para depuración:")
+                st.code(str(e))
+                # Evitar que refresque automáticamente
+                import time
+                time.sleep(10)
+                voice_text = None
     
     # Input del usuario usando chat_input
     user_question = st.chat_input("Escribe tu pregunta sobre cáncer de mama")

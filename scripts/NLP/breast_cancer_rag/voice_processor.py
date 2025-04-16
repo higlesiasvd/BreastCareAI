@@ -191,8 +191,8 @@ def gtts_generate_speech(text, output_path=None):
     text = text.replace("\n", " ").strip()
     
     # Limit text 
-    if len(text) > 1000:
-        text = text[:1000] + "... Continue reading on screen for more information."
+    if len(text) > 1250:
+        text = text[:1250] + "... Continue reading on screen for more information."
     
     try:
         # Create gTTS object with explicit lang setting

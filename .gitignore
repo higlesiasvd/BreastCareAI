@@ -184,3 +184,6 @@ model*
 # folders
 papers/
 presentations/
+
+# macOS system files
+.DS_Store

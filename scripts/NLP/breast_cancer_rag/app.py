@@ -1139,6 +1139,19 @@ with tab2:
                     st.markdown(message["content"])
     # Voice interface
     if voice_available:
+        voice_interface_result = add_voice_interface_to_chat(
+            messages=st.session_state.messages,
+            on_voice_input=lambda text: st.session_state.messages.append({"role": "user", "content": text})
+        )
+        
+        #
+        if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
+            if st.button("🔊 READ THIS RESPONSE"):
+                text_to_read = st.session_state.messages[-1]["content"]
+                from voice_processor import gtts_generate_speech
+                audio_path = gtts_generate_speech(text_to_read)
+                if audio_path:
+                    st.audio(audio_path)
         # If there's already a transcription, show it
         if 'transcription' in st.session_state and st.session_state.transcription:
             voice_text = st.session_state.transcription

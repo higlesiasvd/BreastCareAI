@@ -6,55 +6,60 @@ import sounddevice as sd
 import tempfile
 import os
 import time
-import librosa
+import subprocess
+import base64
 from transformers import pipeline, AutoProcessor, AutoModelForSpeechSeq2Seq
-from TTS.api import TTS
+
+# Try simpler approach for TTS
+try:
+    import gtts
+    from gtts import gTTS
+    gtts_available = True
+except ImportError:
+    gtts_available = False
 
 class AdvancedVoiceProcessor:
-    def __init__(self, use_gpu=None):
-        """
-        Inicializa el procesador de voz avanzado con modelos de última generación
+    def __init__(self, whisper_model_size="tiny"):
+        # Save configuration
+        self.whisper_model_size = whisper_model_size
         
-        Args:
-            use_gpu: True/False para forzar uso de GPU, None para detección automática
-        """
-        # Detectar si estamos en Apple Silicon y configurar dispositivo apropiado
+        # Detect device
         if torch.backends.mps.is_available():
-            self.device = "mps"  # Usar aceleración Metal en Mac con Apple Silicon
-            st.info("Usando aceleración Metal (MPS) para Apple Silicon")
+            self.device = "mps"  # Use Metal acceleration on Macs with Apple Silicon
+            st.info("Using Metal acceleration (MPS) for Apple Silicon")
         elif torch.cuda.is_available():
-            self.device = "cuda"  # GPU NVIDIA
-            st.info("Usando aceleración CUDA para GPU NVIDIA")
+            self.device = "cuda"  # NVIDIA GPU
+            st.info("Using CUDA acceleration for NVIDIA GPU")
         else:
             self.device = "cpu"
-            st.info("Usando CPU para procesamiento (no se detectó GPU compatible)")
+            st.info("Using CPU for processing (no compatible GPU detected)")
             
-        st.info(f"Inicializando modelos de procesamiento de voz en {self.device}...")
+        st.info(f"Initializing voice processing models on {self.device}...")
         
-        # Inicializar modelo Whisper para reconocimiento de voz (ASR)
+        # Initialize Whisper model for speech recognition (ASR)
         try:
-            # Usar modelo small para balance entre rendimiento y precisión
-            self.whisper_model_id = "openai/whisper-tiny"  # Opciones: tiny, base, small, medium, large
+            # Use specified model size
+            self.whisper_model_id = f"openai/whisper-{self.whisper_model_size}"
+            st.info(f"Loading Whisper model: {self.whisper_model_id}")
+            
             self.whisper_processor = AutoProcessor.from_pretrained(self.whisper_model_id)
             self.whisper_model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            self.whisper_model_id, 
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                self.whisper_model_id, 
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
             )
             
-            # Transferir modelo al dispositivo seleccionado
+            # Transfer model to selected device
             if self.device == "mps":
-                # Para Apple Silicon, algunos componentes pueden no ser compatibles con MPS
-                # así que verificamos y usamos CPU como fallback si es necesario
                 try:
                     self.whisper_model.to(self.device)
                 except Exception as e:
-                    st.warning(f"No se pudo usar MPS para Whisper, usando CPU: {str(e)}")
+                    st.warning(f"Could not use MPS for Whisper, using CPU instead: {str(e)}")
                     self.device = "cpu"
                     self.whisper_model.to("cpu")
             else:
                 self.whisper_model.to(self.device)
             
-            # Pipeline de Whisper (más simple de usar)
+            # Whisper Pipeline
             self.asr = pipeline(
                 "automatic-speech-recognition",
                 model=self.whisper_model,
@@ -62,83 +67,54 @@ class AdvancedVoiceProcessor:
                 feature_extractor=self.whisper_processor.feature_extractor,
                 max_new_tokens=128,
                 chunk_length_s=30,
-                batch_size=16,
                 return_timestamps=False,
                 torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                 device=self.device,
             )
             
-            st.success("✅ Modelo Whisper cargado correctamente")
+            st.success("✅ Whisper model loaded successfully")
         except Exception as e:
-            st.error(f"Error al cargar modelo Whisper: {str(e)}")
+            st.error(f"Error loading Whisper model: {str(e)}")
             self.asr = None
             
-        # Inicializar modelo TTS (text to speech)
-        try:
-            # Intenta varios modelos TTS hasta encontrar uno disponible
-            models_to_try = [
-                "tts_models/es/css10/vits",
-                "tts_models/es/mai/tacotron2-DDC",
-                "tts_models/multilingual/multi-dataset/your_tts",
-            ]
-            
-            self.tts = None
-            for model_name in models_to_try:
-                try:
-                    self.tts = TTS(model_name=model_name, progress_bar=True)
-                    st.success(f"Modelo TTS cargado: {model_name}")
-                    break
-                except Exception as model_e:
-                    st.warning(f"No se pudo cargar {model_name}, intentando otro modelo...")
-            
-            if self.tts is None:
-                raise Exception("No se pudo cargar ningún modelo TTS")
-                
-        except Exception as e:
-            st.error(f"Error al cargar modelo TTS: {str(e)}")
-            self.tts = None
+        # Check TTS availability
+        if gtts_available:
+            st.success("✅ Google TTS available")
+        else:
+            st.warning("⚠️ Google TTS not available. Install with: pip install gtts")
     
     def record_audio(self, duration=10, sample_rate=16000):
         """
-        Graba audio desde el micrófono (versión simplificada)
+        Record audio from microphone
         """
-        # Crear un archivo temporal
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
         temp_file.close()
         
-        # Preparar UI
         status = st.empty()
         progress_bar = st.progress(0)
-        status.info("Preparando micrófono...")
+        status.info("Preparing microphone...")
         
-        # Configuración de grabación
         audio_data = []
         
         def callback(indata, frame_count, time_info, status):
             if status:
-                print(f"Error en callback: {status}")
+                print(f"Error in callback: {status}")
             audio_data.append(indata.copy())
         
-        # Inicializar variable de control
-        stop_recording = False
         if 'stop_button_pressed' not in st.session_state:
             st.session_state.stop_button_pressed = False
         
-        # Función para el botón de detener
         def stop_recording_callback():
             st.session_state.stop_button_pressed = True
         
-        # Botón para detener grabación
-        st.button("⏹️ Detener grabación", 
+        st.button("⏹️ Stop Recording", 
                  on_click=stop_recording_callback,
-                 key=f"stop_button_{temp_file.name}")  # Usar nombre de archivo como clave única
+                 key=f"stop_button_{temp_file.name}")
         
-        # Iniciar grabación
-        status.info("🎙️ Grabando... Habla ahora")
+        status.info("🎙️ Recording... Speak now")
         
         try:
             with sd.InputStream(callback=callback, channels=1, samplerate=sample_rate):
-                # Mostrar progreso mientras grabamos
                 start_time = time.time()
                 for i in range(100):
                     if st.session_state.stop_button_pressed or time.time() - start_time > duration:
@@ -146,166 +122,137 @@ class AdvancedVoiceProcessor:
                     progress_bar.progress(i/100)
                     time.sleep(duration/100)
             
-            # Resetear el botón para la próxima vez
             st.session_state.stop_button_pressed = False
             
-            # Procesar audio grabado
             if audio_data:
-                status.info("Procesando audio...")
+                status.info("Processing audio...")
                 audio_array = np.concatenate(audio_data, axis=0)
                 audio_array = audio_array.flatten()
                 
-                # Normalizar
                 if np.max(np.abs(audio_array)) > 0:
                     audio_array = audio_array / np.max(np.abs(audio_array))
                 
-                # Guardar a archivo
                 sf.write(temp_file.name, audio_array, sample_rate)
-                status.success("✅ Audio grabado")
+                status.success("✅ Audio recorded")
                 return temp_file.name, audio_array
             else:
-                status.error("No se detectó audio")
+                status.error("No audio detected")
                 return None, None
         except Exception as e:
-            status.error(f"Error al grabar: {str(e)}")
+            status.error(f"Error recording: {str(e)}")
             return None, None
     
     def transcribe_audio(self, audio_path=None, audio_array=None, sample_rate=16000):
         """
-        Transcribe audio usando Whisper
-        
-        Args:
-            audio_path: Ruta al archivo de audio (opcional)
-            audio_array: Array numpy con datos de audio (opcional)
-            sample_rate: Tasa de muestreo del audio
-            
-        Returns:
-            text: Texto transcrito
+        Transcribe audio using Whisper
         """
         if self.asr is None:
-            st.error("Modelo de reconocimiento de voz no disponible")
+            st.error("Speech recognition model not available")
             return ""
             
         if audio_path is None and audio_array is None:
-            st.error("Se requiere archivo de audio o array de audio")
+            st.error("Audio file or audio array required")
             return ""
             
         try:
-            with st.spinner("Transcribiendo audio con Whisper..."):
-                # Configurar parámetros de generación sin usar 'language' directamente
+            with st.spinner("Transcribing audio with Whisper..."):
                 generate_kwargs = {
                     "task": "transcribe",
-                    # Eliminar "batch_size" de aquí
+                    "language": "en"
                 }
-                # En versiones más nuevas, se especifica el idioma de esta forma
+                
                 if audio_path:
                     result = self.asr(audio_path, generate_kwargs=generate_kwargs)
                 else:
                     result = self.asr({"array": audio_array, "sampling_rate": sample_rate}, generate_kwargs=generate_kwargs)
-        # Si la salida está en inglés, podemos intentar forzar el idioma de otra manera
-        # en una segunda pasada si es necesario
-                # Obtener el texto transcrito
+                
                 transcription = result["text"]
                 return transcription
         except Exception as e:
-            st.error(f"Error al transcribir audio: {str(e)}")
+            st.error(f"Error transcribing audio: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc(), language="python")
             return ""
+
+def gtts_generate_speech(text, output_path=None):
+    """Simple function to generate speech using gTTS"""
+    st.write("Attempting to generate speech with Google TTS...")
     
-    def text_to_speech(self, text, output_path=None):
-        """
-        Convierte texto a voz usando modelo avanzado
+    if not gtts_available:
+        st.error("Google TTS not available. Install with: pip install gtts")
+        return None
+    
+    if not output_path:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+        temp_file.close()
+        output_path = temp_file.name
+    
+    # Normalize text
+    text = text.replace("\n", " ").strip()
+    
+    # Limit text 
+    if len(text) > 500:
+        text = text[:500] + "... Continue reading on screen for more information."
+    
+    try:
+        # Create gTTS object with explicit lang setting
+        tts = gTTS(text=text, lang='en', slow=False)
         
-        Args:
-            text: Texto a convertir en voz
-            output_path: Ruta de salida (opcional)
-            
-        Returns:
-            path: Ruta al archivo de audio generado
-        """
-        if self.tts is None:
-            st.error("Modelo TTS no disponible")
-            return None
-            
-        # Crear archivo temporal si no se especifica salida
-        if output_path is None:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
-            temp_file.close()
-            output_path = temp_file.name
-            
-        try:
-            with st.spinner("Generando voz..."):
-                # Normalizar el texto para evitar errores con caracteres especiales
-                text = text.replace("\n", " ").strip()
-                
-                # Limitar texto para procesamiento más rápido 
-                # (especialmente en CPU)
-                if len(text) > 500:
-                    text = text[:500] + "... Continúa leyendo en la pantalla para más información."
-                
-                # Generar audio
-                self.tts.tts_to_file(
-                    text=text,
-                    file_path=output_path,
-                    speaker=None,  # No hay hablantes específicos para este modelo
-                    language="es"
-                )
-                
-                return output_path
-        except Exception as e:
-            st.error(f"Error al generar voz: {str(e)}")
-            return None
+        # Save to file
+        tts.save(output_path)
+        st.success(f"✅ Speech generated with Google TTS to {output_path}")
+        return output_path
+    except Exception as e:
+        st.error(f"Google TTS error: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc(), language="python")
+        return None
 
 def audio_recorder_and_transcriber():
     """
-    Componente simplificado para grabar audio y transcribirlo
+    Simplified component to record audio and transcribe it
     """
-    # Usar un método más sencillo para evitar problemas de estado
     if 'voice_state' not in st.session_state:
         st.session_state.voice_state = 'ready'
     
-    # Contenedor principal para el componente
+    whisper_model = st.session_state.get('whisper_model', 'tiny')
+    
     voice_container = st.container()
     
     with voice_container:
         if st.session_state.voice_state == 'ready':
-            st.write("📣 Presiona el botón para grabar audio")
-            if st.button("🎙️ Grabar audio", key="record_simple"):
-                # Cambiar estado e iniciar grabación
+            st.write("📣 Press the button to record audio")
+            if st.button("🎙️ Record audio", key="record_simple"):
                 st.session_state.voice_state = 'recording'
                 st.experimental_rerun()
                 
         elif st.session_state.voice_state == 'recording':
-            # Mostrar que está grabando
-            st.write("🔴 Grabando... Habla ahora")
+            st.write("🔴 Recording... Speak now")
             progress = st.progress(0)
             
             try:
-                # Crear procesador y grabar
-                processor = AdvancedVoiceProcessor()
-                audio_path, audio_array = processor.record_audio(duration=10)  # Duración fija para simplificar
+                processor = AdvancedVoiceProcessor(whisper_model_size=whisper_model)
+                audio_path, audio_array = processor.record_audio(duration=10)
                 
                 if audio_path:
-                    # Guardar en estado
                     st.session_state.audio_path = audio_path
                     st.session_state.voice_state = 'transcribing'
                     st.experimental_rerun()
                 else:
-                    st.error("No se pudo grabar audio")
+                    st.error("Could not record audio")
                     st.session_state.voice_state = 'ready'
             except Exception as e:
-                st.error(f"Error en grabación: {str(e)}")
+                st.error(f"Error in recording: {str(e)}")
                 st.session_state.voice_state = 'ready'
                 
         elif st.session_state.voice_state == 'transcribing':
-            st.write("⏳ Procesando audio...")
+            st.write("⏳ Processing audio...")
             
             try:
-                # Reproducir audio grabado
                 if 'audio_path' in st.session_state:
                     st.audio(st.session_state.audio_path)
                 
-                # Transcribir
-                processor = AdvancedVoiceProcessor()
+                processor = AdvancedVoiceProcessor(whisper_model_size=whisper_model)
                 transcription = processor.transcribe_audio(audio_path=st.session_state.audio_path)
                 
                 if transcription:
@@ -313,83 +260,57 @@ def audio_recorder_and_transcriber():
                     st.session_state.voice_state = 'done'
                     st.experimental_rerun()
                 else:
-                    st.error("No se pudo transcribir el audio")
+                    st.error("Could not transcribe audio")
                     st.session_state.voice_state = 'ready'
             except Exception as e:
-                st.error(f"Error en transcripción: {str(e)}")
+                st.error(f"Error in transcription: {str(e)}")
                 st.session_state.voice_state = 'ready'
                 
         elif st.session_state.voice_state == 'done':
-            # Mostrar resultado
-            st.success(f"🎯 Texto transcrito: {st.session_state.transcription}")
+            st.success(f"🎯 Transcribed text: {st.session_state.transcription}")
             st.audio(st.session_state.audio_path)
             
-            # Botón para reiniciar
-            if st.button("🔄 Nueva grabación", key="reset_recording"):
+            if st.button("🔄 New recording", key="reset_recording"):
                 st.session_state.voice_state = 'ready'
                 st.experimental_rerun()
             
-            # Devolver el texto transcrito
             return st.session_state.transcription
     
-    # Si no llegamos al estado 'done', no hay texto
     return None
 
-# Función para generar y reproducir voz a partir de texto
 def generate_and_play_speech(text):
     """
-    Genera y reproduce voz a partir de texto
-    
-    Args:
-        text: Texto a convertir en voz
+    Generate and play speech from text - simplified version
     """
-    processor = AdvancedVoiceProcessor()
+    audio_path = None
     
-    # Limitar texto para evitar procesamiento excesivo
-    max_length = 500
-    if len(text) > max_length:
-        display_text = text[:max_length] + "..."
-        speak_text = text[:max_length] + " La respuesta continúa en pantalla."
-    else:
-        display_text = text
-        speak_text = text
-    
-    with st.status("Generando respuesta por voz"):
-        st.write(f"Procesando: {display_text[:100]}...")
+    with st.status("Generating speech...", expanded=True) as status:
+        st.write(f"Processing text: {text[:100]}..." if len(text) > 100 else f"Processing text: {text}")
         
-        # Generar audio
-        audio_path = processor.text_to_speech(speak_text)
+        # Use Google TTS directly
+        audio_path = gtts_generate_speech(text)
         
         if audio_path:
-            st.write("✅ Audio generado correctamente")
-            # Reproducir audio
+            st.write("✅ Audio generated successfully")
             st.audio(audio_path)
+            status.update(label="✅ Speech generated", state="complete")
+            return audio_path
         else:
-            st.error("No se pudo generar el audio")
+            st.error("Could not generate audio with any available method")
+            status.update(label="❌ Speech generation failed", state="error")
+            return None
 
-# Función para verificar disponibilidad y estado de los modelos de voz
 def check_voice_capabilities():
     """
-    Comprueba si los modelos y bibliotecas necesarios están disponibles
-    
-    Returns:
-        available (bool): True si el procesamiento de voz está disponible
-        status (str): Mensaje de estado
+    Check if required models and libraries are available
     """
     try:
-        # Verificar disponibilidad de bibliotecas
         import torch
         import sounddevice
         import transformers
         
-        # Verificar si TTS está disponible
-        try:
-            from TTS.api import TTS
-            tts_available = True
-        except ImportError:
-            tts_available = False
+        tts_available = gtts_available
         
-        # Determinar mejor dispositivo para procesamiento
         if torch.backends.mps.is_available():
             device = "mps (Apple Silicon)"
         elif torch.cuda.is_available():
@@ -397,135 +318,152 @@ def check_voice_capabilities():
         else:
             device = "cpu"
         
-        # Evaluar estado general
         if tts_available:
-            return True, f"Procesamiento de voz disponible en {device}"
+            return True, f"Voice processing available on {device} with Google TTS"
         else:
-            return False, f"Procesamiento de voz parcialmente disponible (falta TTS) en {device}"
+            return False, f"Voice processing partially available (missing TTS) on {device}"
             
     except ImportError as e:
-        return False, f"Faltan dependencias: {str(e)}"
+        return False, f"Missing dependencies: {str(e)}"
 
-# Función conveniente para integrar en la aplicación principal
 def add_voice_controls_to_sidebar():
     """
-    Añade controles de voz a la barra lateral de la aplicación
-    
-    Returns:
-        dict: Configuración de voz (enabled, auto_read_responses)
+    Add voice controls to sidebar - simplified version
     """
-    st.sidebar.subheader("Procesamiento de Voz")
+    st.sidebar.subheader("Voice Processing")
     
-    # Verificar capacidades de voz
     voice_available, status_msg = check_voice_capabilities()
     
     if voice_available:
         st.sidebar.success(status_msg)
-        enabled = st.sidebar.checkbox("Habilitar procesamiento de voz", value=True)
+        enabled = st.sidebar.checkbox("Enable voice processing", value=True)
         
         if enabled:
-            auto_read = st.sidebar.checkbox("Leer respuestas automáticamente", value=False)
-            st.sidebar.info("Usando modelos Whisper y TTS para procesamiento de voz")
+            auto_read = st.sidebar.checkbox("Automatically read responses", value=False)
             
-            # Opciones avanzadas
-            with st.sidebar.expander("Opciones avanzadas de voz"):
-                whisper_model = st.selectbox(
-                    "Modelo Whisper",
-                    ["tiny", "base", "small", "medium", "large"],
-                    index=2  # Predeterminado: small
-                )
-                
-                voice_speed = st.slider(
-                    "Velocidad de voz",
-                    0.5, 2.0, 1.0, 0.1
-                )
+            st.session_state.voice_enabled = enabled
+            st.session_state.auto_read_responses = auto_read
+            
+            whisper_model = st.sidebar.selectbox(
+                "Whisper model",
+                ["tiny", "base", "small"],
+                index=0
+            )
+            
+            st.session_state.whisper_model = whisper_model
             
             return {
                 "enabled": enabled,
                 "auto_read_responses": auto_read,
-                "whisper_model": whisper_model,
-                "voice_speed": voice_speed
+                "whisper_model": whisper_model
             }
         else:
+            st.session_state.voice_enabled = False
+            st.session_state.auto_read_responses = False
             return {"enabled": False}
     else:
         st.sidebar.warning(status_msg)
-        st.sidebar.info("Para habilitar el procesamiento de voz, instala las dependencias necesarias con:\n\n```\npip install transformers torch torchaudio soundfile sounddevice librosa TTS\n```")
+        st.sidebar.info("To enable voice processing, install the required dependencies with:\n\n```\npip install transformers torch torchaudio soundfile sounddevice librosa gtts\n```")
+        st.session_state.voice_enabled = False
+        st.session_state.auto_read_responses = False
         return {"enabled": False}
 
-# Función principal para añadir interfaz de voz a la conversación
 def add_voice_interface_to_chat(messages=None, on_voice_input=None):
     """
-    Añade interfaz de voz al chat
-    
-    Args:
-        messages: Lista de mensajes de chat (opcional)
-        on_voice_input: Función de callback para entrada de voz (opcional)
-        
-    Returns:
-        voice_input: Texto reconocido si se usó entrada de voz
+    Add voice interface to chat - simplified version with explicit debugging
     """
-    # Generar ID único para esta sesión
-    import time
     session_id = int(time.time() * 1000)
     
-    # Añadir controles de grabación de voz
-    st.subheader("Entrada por Voz")
+    st.subheader("Voice Interface")
     voice_col1, voice_col2 = st.columns([3,2])
     
     with voice_col1:
-        if st.button("🎙️ Hacer pregunta por voz", key=f"voice_button_{session_id}"):
+        if st.button("🎙️ Ask question by voice", key=f"voice_button_{session_id}"):
             voice_input = audio_recorder_and_transcriber()
             
             if voice_input and on_voice_input:
-                # Llamar al callback con la entrada de voz
                 on_voice_input(voice_input)
-                
                 return voice_input
     
     with voice_col2:
-        auto_read_responses = st.checkbox("🔊 Leer respuestas", value=False, key=f"voice_auto_read_{session_id}")
+        default_auto_read = st.session_state.get('auto_read_responses', False)
+        auto_read_responses = st.checkbox("🔊 Read responses", 
+                                         value=default_auto_read, 
+                                         key=f"voice_auto_read_{session_id}")
         
-        # Si hay mensajes previos y auto_read está activado, leer último mensaje
-        if auto_read_responses and messages and len(messages) > 0:
-            last_message = messages[-1]
-            if last_message["role"] == "assistant":
-                generate_and_play_speech(last_message["content"])
+        st.session_state.auto_read_responses = auto_read_responses
+    
+    # Voice output for last assistant message
+    if messages and len(messages) > 0:
+        last_message = messages[-1]
+        
+        if last_message["role"] == "assistant":
+            st.write("---")
+            st.write("**Voice Output Options:**")
+            
+            # DIRECT READ BUTTON - Most reliable method
+            if st.button("🔊 Read this response (Direct TTS)", key=f"direct_read_{session_id}"):
+                st.write("Button clicked - attempting to generate speech...")
+                text_to_read = last_message["content"]
+                generated_audio = gtts_generate_speech(text_to_read)
+                
+                if generated_audio:
+                    st.audio(generated_audio)
+                else:
+                    st.error("Failed to generate audio - please check console for errors")
+            
+            # Automatic reading if enabled
+            if auto_read_responses:
+                st.write("Auto-read is enabled - attempting to generate speech automatically...")
+                text_to_read = last_message["content"]
+                generated_audio = gtts_generate_speech(text_to_read)
+                
+                if generated_audio:
+                    st.audio(generated_audio)
+                else:
+                    st.error("Failed to generate audio automatically - please check console for errors")
     
     return None
 
-# Si se ejecuta como script principal, mostrar demo
 if __name__ == "__main__":
-    st.title("Demostración de procesamiento de voz")
+    st.title("Voice Processing Demonstration")
+    
+    if 'whisper_model' not in st.session_state:
+        st.session_state.whisper_model = "tiny"
+    if 'voice_enabled' not in st.session_state:
+        st.session_state.voice_enabled = True
+    if 'auto_read_responses' not in st.session_state:
+        st.session_state.auto_read_responses = False
     
     st.markdown("""
-    Esta es una demostración del módulo de procesamiento de voz para integrar con la aplicación RAG.
+    This is a simplified voice processing demo focusing on the most reliable components.
     
-    ## Funcionalidades
-    - Reconocimiento de voz con Whisper
-    - Síntesis de voz con TTS
-    - Optimizado para Apple Silicon
-    
-    Prueba las funciones abajo:
+    ## Features
+    - Speech recognition with Whisper
+    - Text-to-speech with Google TTS
+    - Explicit debugging
     """)
     
-    tab1, tab2 = st.tabs(["Reconocimiento de Voz", "Síntesis de Voz"])
+    voice_config = add_voice_controls_to_sidebar()
+    
+    tab1, tab2 = st.tabs(["Speech Recognition", "Text-to-Speech"])
     
     with tab1:
-        st.subheader("Transcripción de Voz a Texto")
+        st.subheader("Speech-to-Text Transcription")
         transcription = audio_recorder_and_transcriber()
         
         if transcription:
-            st.info("Texto transcrito:")
+            st.info("Transcribed text:")
             st.code(transcription)
     
     with tab2:
-        st.subheader("Síntesis de Voz")
-        text_input = st.text_area("Ingresa texto para convertir a voz", 
-                                 "Hola, soy el asistente virtual para información sobre cáncer de mama. ¿En qué puedo ayudarte hoy?", 
+        st.subheader("Text-to-Speech Synthesis (Direct)")
+        text_input = st.text_area("Enter text to convert to speech", 
+                                 "Hello, I'm the virtual assistant for breast cancer information. How can I help you today?", 
                                  height=100)
         
-        if st.button("Generar voz"):
-            generate_and_play_speech(text_input)
-
-## error:Error al transcribir audio: The following model_kwargs are not used by the model: ['batch_size'] (note: typos in the generate arguments will also show up in this list)
+        if st.button("Generate speech"):
+            # Use the simplified direct approach
+            audio_path = gtts_generate_speech(text_input)
+            if audio_path:
+                st.audio(audio_path)

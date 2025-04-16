@@ -370,58 +370,19 @@ def add_voice_controls_to_sidebar():
 
 def add_voice_interface_to_chat(messages=None, on_voice_input=None):
     """
-    Add voice interface to chat - simplified version with explicit debugging
+    Add voice interface to chat 
     """
     session_id = int(time.time() * 1000)
     
     st.subheader("Voice Interface")
-    voice_col1, voice_col2 = st.columns([3,2])
     
-    with voice_col1:
-        if st.button("🎙️ Ask question by voice", key=f"voice_button_{session_id}"):
-            voice_input = audio_recorder_and_transcriber()
-            
-            if voice_input and on_voice_input:
-                on_voice_input(voice_input)
-                return voice_input
     
-    with voice_col2:
-        default_auto_read = st.session_state.get('auto_read_responses', False)
-        auto_read_responses = st.checkbox("🔊 Read responses", 
-                                         value=default_auto_read, 
-                                         key=f"voice_auto_read_{session_id}")
+    if st.button("🎙️ Record Voice", key=f"voice_button_{session_id}"):
+        voice_input = audio_recorder_and_transcriber()
         
-        st.session_state.auto_read_responses = auto_read_responses
-    
-    # Voice output for last assistant message
-    if messages and len(messages) > 0:
-        last_message = messages[-1]
-        
-        if last_message["role"] == "assistant":
-            st.write("---")
-            st.write("**Voice Output Options:**")
-            
-            # DIRECT READ BUTTON - Most reliable method
-            if st.button("🔊 Read this response (Direct TTS)", key=f"direct_read_{session_id}"):
-                st.write("Button clicked - attempting to generate speech...")
-                text_to_read = last_message["content"]
-                generated_audio = gtts_generate_speech(text_to_read)
-                
-                if generated_audio:
-                    st.audio(generated_audio)
-                else:
-                    st.error("Failed to generate audio - please check console for errors")
-            
-            # Automatic reading if enabled
-            if auto_read_responses:
-                st.write("Auto-read is enabled - attempting to generate speech automatically...")
-                text_to_read = last_message["content"]
-                generated_audio = gtts_generate_speech(text_to_read)
-                
-                if generated_audio:
-                    st.audio(generated_audio)
-                else:
-                    st.error("Failed to generate audio automatically - please check console for errors")
+        if voice_input and on_voice_input:
+            on_voice_input(voice_input)
+            return voice_input
     
     return None
 

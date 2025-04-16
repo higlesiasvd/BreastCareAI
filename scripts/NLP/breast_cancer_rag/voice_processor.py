@@ -191,8 +191,8 @@ def gtts_generate_speech(text, output_path=None):
     text = text.replace("\n", " ").strip()
     
     # Limit text 
-    if len(text) > 500:
-        text = text[:500] + "... Continue reading on screen for more information."
+    if len(text) > 1000:
+        text = text[:1000] + "... Continue reading on screen for more information."
     
     try:
         # Create gTTS object with explicit lang setting
@@ -377,7 +377,7 @@ def add_voice_interface_to_chat(messages=None, on_voice_input=None):
     st.subheader("Voice Interface")
     
     
-    if st.button("🎙️ Record Voice", key=f"voice_button_{session_id}"):
+    if st.button("🗣️ Audio response", key=f"voice_button_{session_id}"):
         voice_input = audio_recorder_and_transcriber()
         
         if voice_input and on_voice_input:
@@ -386,6 +386,7 @@ def add_voice_interface_to_chat(messages=None, on_voice_input=None):
     
     return None
 
+# If running this script directly, we can test the functionality
 if __name__ == "__main__":
     st.title("Voice Processing Demonstration")
     

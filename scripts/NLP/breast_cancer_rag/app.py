@@ -9,6 +9,8 @@ import re
 import pandas as pd
 from langchain.memory import ConversationBufferWindowMemory
 
+import calendar_integration
+
 # Try to import voice processing modules if available
 try:
     from voice_processor import add_voice_controls_to_sidebar, add_voice_interface_to_chat, audio_recorder_and_transcriber
@@ -87,6 +89,18 @@ except Exception as e:
     st.error(f"Import error: {str(e)}")
     st.info("Install the required dependencies with: pip install langchain langchain-community pypdf unstructured faiss-cpu pdf2image pandas")
     st.stop()
+
+# Verificar dependencias de Google Calendar
+try:
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    st.success("✅ Dependencies of Google Calendar loaded successfully")
+except Exception as e:
+    st.warning(f"Some Google Calendar dependencies are not available: {str(e)}")
+    st.info("To enable integration with Google Calendar, install: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
+    # No hacemos st.stop() aquí para que la aplicación siga funcionando sin la integración de calendario
 
 # Verify if Ollama is installed and running
 try:
@@ -948,8 +962,8 @@ with st.sidebar:
     st.markdown("### About this application")
     st.info("This app was developed to create a RAG specialized in breast cancer, allowing the storage of medical documentation and guidelines and answering questions based on scientific evidence.")
 
-# Main content - Sections: 1. Document Upload, 2. Chat Interface
-tab1, tab2 = st.tabs(["📄 Upload Documents", "💬 Conversation"])
+# Main content - Sections: 1. Document Upload, 2. Chat Interface, 3. Calendar
+tab1, tab2, tab3 = st.tabs(["📄 Upload Documents", "💬 Conversation", "🗓️ Calendar Integration"])
 
 # Tab 1: Document Upload
 with tab1:
@@ -1337,7 +1351,21 @@ with tab2:
                                 - Patient associations like Susan G. Komen Foundation
                                 - Cancer Support Community Helpline: 1-888-793-9355
                                 """)
-                    
+                        with chat_container:
+                            # Obtener la última pregunta del usuario
+                            last_user_messages = [msg for msg in st.session_state.messages if msg["role"] == "user"]
+                            if last_user_messages:
+                                last_question = last_user_messages[-1]["content"]
+                                
+                                # Añadir botón para guardar la pregunta en el calendario
+                                if st.button("🗓️ Schedule a consultation with this question", key="calendar_btn"):
+                                    # Guardar la pregunta en session_state para usarla en la pestaña de calendario
+                                    if 'saved_questions' not in st.session_state:
+                                        st.session_state.saved_questions = []
+                                    
+                                    st.session_state.saved_questions.append(last_question)
+                                    st.info("Question saved. Go to the Calendar Integration tab to schedule your consultation.")
+                                    
                 except Exception as e:
                     with chat_container:
                         with st.chat_message("assistant"):
@@ -1347,6 +1375,20 @@ with tab2:
             with chat_container:
                 with st.chat_message("assistant"):
                     st.warning("No processed documents to answer your question. Please upload and process documents in the 'Upload Documents' tab first.")
+
+with tab3:
+    # show saved questions from the conversation
+    if 'saved_questions' in st.session_state and st.session_state.saved_questions:
+        st.subheader("Preguntas guardadas desde la conversación")
+        for i, question in enumerate(st.session_state.saved_questions):
+            st.markdown(f"{i+1}. {question}")
+        
+        if st.button("Limpiar preguntas guardadas"):
+            st.session_state.saved_questions = []
+            st.experimental_rerun()
+    # Calendar integration
+    calendar_integration.calendar_management_ui()
+
 
 # Debug information
 with st.expander("Debug information", expanded=False):

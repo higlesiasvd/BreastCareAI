@@ -108,6 +108,13 @@ try:
         st.success("✅ Model phi2-breast-cancer detected successfully")
     else:
         st.warning("⚠️ phi2-breast-cancer not found. If you want to use this model, make sure it's installed")
+
+    if "breast-cancer-llama3" in result.stdout:
+        available_models.append("breast-cancer-llama3")
+        st.success("✅ Modelo breast-cancer-llama3 detectado correctamente")
+    else:
+        st.warning("⚠️ breast-cancer-llama3 not found. If you want to use this model, execute :\n`ollama create breast-cancer-llama3 -f ./Modelfile`")
+        
         
     if not available_models:
         st.error("❌ No compatible models found. Install at least one of the required models.")
@@ -165,7 +172,9 @@ if 'embedding_model' not in st.session_state:
 # Add response model to the session
 if 'llm_model' not in st.session_state:
     # Set default model based on availability
-    if "llama3:8b" in available_models:
+    if "breast-cancer-llama3" in available_models:  
+        st.session_state.llm_model = "breast-cancer-llama3"
+    elif "llama3:8b" in available_models:
         st.session_state.llm_model = "llama3:8b"
     elif "phi2-breast-cancer" in available_models:
         st.session_state.llm_model = "phi2-breast-cancer"
@@ -787,7 +796,7 @@ with st.sidebar:
     
     # Model selection for responses
     st.subheader("Response Model")
-    llm_models = [model for model in available_models if model in ["llama3:8b", "phi2-breast-cancer"]]
+    llm_models = [model for model in available_models if model in ["breast-cancer-llama3","llama3:8b", "phi2-breast-cancer"]]
     if llm_models:
         selected_llm = st.selectbox(
             "Model for answering questions",
@@ -801,6 +810,8 @@ with st.sidebar:
             st.info("**Llama 3 8B**: Meta's base model with good general performance in English.")
         elif selected_llm == "phi2-breast-cancer":
             st.success("**Phi-2 Breast Cancer**: Specialized model with fine-tuning for breast cancer. May offer more specific responses adapted to the oncological medical context.")
+        elif selected_llm == "breast-cancer-llama3":
+            st.success("**Breast Cancer Llama 3**: Custom model with system prompt that avoids contextual hallucinations.")
     else:
         st.error("No compatible models found. Make sure you have llama3:8b or phi2-breast-cancer installed in Ollama.")
     
@@ -1062,6 +1073,8 @@ with tab2:
                 st.info("🦙 **Llama 3 8B** - Meta's base model")
             elif st.session_state.llm_model == "phi2-breast-cancer":
                 st.success("🎗️ **Phi2-Breast-Cancer** - Specialized model with fine-tuning for breast cancer")
+            elif st.session_state.llm_model == "breast-cancer-llama3":
+                st.success("🎗️ **Breast-Cancer-Llama3** - Personalized model that avoids confusing case studies with personal information")
             else:
                 st.warning(f"⚠️ {st.session_state.llm_model} - Alternative model")
     

@@ -187,3 +187,8 @@ presentations/
 
 # macOS system files
 .DS_Store
+
+# google calendar api
+token.json
+credentials.json
+token.pickle

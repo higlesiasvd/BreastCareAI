@@ -10,6 +10,7 @@ import pandas as pd
 from langchain.memory import ConversationBufferWindowMemory
 
 import calendar_integration
+import medication_reminders
 
 # Try to import voice processing modules if available
 try:
@@ -962,8 +963,8 @@ with st.sidebar:
     st.markdown("### About this application")
     st.info("This app was developed to create a RAG specialized in breast cancer, allowing the storage of medical documentation and guidelines and answering questions based on scientific evidence.")
 
-# Main content - Sections: 1. Document Upload, 2. Chat Interface, 3. Calendar
-tab1, tab2, tab3 = st.tabs(["📄 Upload Documents", "💬 Conversation", "🗓️ Calendar Integration"])
+# Main content - Sections: 1. Document Upload, 2. Chat Interface, 3. Calendar 4. Medication
+tab1, tab2, tab3, tab4 = st.tabs(["📄 Upload Documents", "💬 Conversation", "🗓️ Calendar", "💊 Medication"])
 
 # Tab 1: Document Upload
 with tab1:
@@ -1352,20 +1353,51 @@ with tab2:
                                 - Cancer Support Community Helpline: 1-888-793-9355
                                 """)
                         with chat_container:
-                            # Obtener la última pregunta del usuario
+                            # Obtener la última pregunta y respuesta
                             last_user_messages = [msg for msg in st.session_state.messages if msg["role"] == "user"]
-                            if last_user_messages:
+                            last_assistant_messages = [msg for msg in st.session_state.messages if msg["role"] == "assistant"]
+                            
+                            if last_user_messages and last_assistant_messages:
                                 last_question = last_user_messages[-1]["content"]
+                                last_answer = last_assistant_messages[-1]["content"]
                                 
-                                # Añadir botón para guardar la pregunta en el calendario
-                                if st.button("🗓️ Schedule a consultation with this question", key="calendar_btn"):
-                                    # Guardar la pregunta en session_state para usarla en la pestaña de calendario
-                                    if 'saved_questions' not in st.session_state:
-                                        st.session_state.saved_questions = []
-                                    
-                                    st.session_state.saved_questions.append(last_question)
-                                    st.info("Question saved. Go to the Calendar Integration tab to schedule your consultation.")
-                                    
+                                # Contenedor para botones de acción
+                                action_col1, action_col2 = st.columns(2)
+                                
+                                # Botón para calendario (conservamos el existente)
+                                with action_col1:
+                                    if st.button("🗓️ Schedule consultation with this question", key="calendar_btn"):
+                                        if 'saved_questions' not in st.session_state:
+                                            st.session_state.saved_questions = []
+                                        
+                                        st.session_state.saved_questions.append(last_question)
+                                        st.info("Question saved. Go to the Calendar tab to schedule your appointment.")
+                                
+                                # Nuevo botón para medicación
+                                with action_col2:
+                                    if st.button("💊 Add medication mentioned", key="medication_btn"):
+                                        # Extraer posible medicación mencionada
+                                        # (Esto es muy básico, se podría mejorar con NLP)
+                                        import re
+                                        medication_pattern = r"(\w+)\s+(\d+\s*mg|\d+\s*mcg|\d+\s*ml|\d+\s*g)"
+                                        matches = re.findall(medication_pattern, last_answer)
+                                        
+                                        if matches:
+                                            # Guardar medicaciones encontradas
+                                            if 'detected_medications' not in st.session_state:
+                                                st.session_state.detected_medications = []
+                                            
+                                            for med, dosage in matches:
+                                                st.session_state.detected_medications.append({
+                                                    "name": med,
+                                                    "dosage": dosage
+                                                })
+                                            
+                                            st.info(f"Detected {len(matches)} medications. Go to the Medication tab to set up reminders.")
+                                        else:
+                                            st.warning("No medication detected in the response. You can still add medications manually in the Medication tab.")
+                                            st.success("Response saved. You can view it in the conversation history.") 
+                                            
                 except Exception as e:
                     with chat_container:
                         with st.chat_message("assistant"):
@@ -1379,15 +1411,19 @@ with tab2:
 with tab3:
     # show saved questions from the conversation
     if 'saved_questions' in st.session_state and st.session_state.saved_questions:
-        st.subheader("Preguntas guardadas desde la conversación")
+        st.subheader("Questions saved from conversation")
         for i, question in enumerate(st.session_state.saved_questions):
             st.markdown(f"{i+1}. {question}")
         
-        if st.button("Limpiar preguntas guardadas"):
+        if st.button("Clear saved questions"):
             st.session_state.saved_questions = []
             st.experimental_rerun()
     # Calendar integration
     calendar_integration.calendar_management_ui()
+
+with tab4:
+    # Call to the main function of the medication reminders module
+    medication_reminders.medication_reminders_ui()
 
 
 # Debug information

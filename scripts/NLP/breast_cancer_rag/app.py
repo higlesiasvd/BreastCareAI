@@ -1483,6 +1483,27 @@ with tab5:  # Call to the medical glossary module
 with tab6:
     st.header("Breast Ultrasound Segmentation")
     st.write("Upload an ultrasound image to segment breast tissue and visualize the result.")
+    
+    # Informational box about the technology
+    with st.expander("ℹ️ About Breast Ultrasound Segmentation", expanded=False):
+        st.markdown("""
+        ### Breast Ultrasound Segmentation
+        
+        This tool uses a U-Net neural network with attention mechanisms to automatically identify and highlight breast tissue in ultrasound images.
+        
+        **Key features:**
+        - AI-powered segmentation of breast tissue
+        - Adjustable threshold for fine-tuning detection sensitivity 
+        - Dice coefficient calculation to evaluate segmentation quality
+        
+        **What is the Dice coefficient?**
+        The Dice coefficient is a statistical measure of the similarity between two sets of data. In image segmentation:
+        - It ranges from 0 (no overlap) to 1 (perfect overlap)
+        - It is calculated as: 2 × |X ∩ Y| / (|X| + |Y|), where X and Y are the predicted and true segmentation areas
+        - Values above 0.7 typically indicate good segmentation quality
+        
+        **Note:** This tool is for educational purposes only and should not replace professional medical evaluation.
+        """)
 
     # File uploader
     uploaded_image = st.file_uploader(
@@ -1494,26 +1515,114 @@ with tab6:
         # Load the image
         image = Image.open(uploaded_image).convert('L')  # Convert to grayscale
 
-        st.subheader("Original Ultrasound Image")
-        st.image(image, caption="Uploaded Ultrasound", use_column_width=True)
+        # Allow user to adjust threshold
+        threshold = st.slider(
+            "Segmentation Threshold", 
+            min_value=0.1, 
+            max_value=0.9, 
+            value=0.5, 
+            step=0.05,
+            help="Adjust the sensitivity of the segmentation. Lower values include more tissue, higher values are more selective."
+        )
+
+        # Create columns for layout
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Original Ultrasound Image")
+            st.image(image, caption="Uploaded Ultrasound", use_column_width=True)
 
         # Segmentation Prediction
         with st.spinner('Running segmentation model...'):
-            mask, prob_map = segmentation_model.predict(image)
+            mask, prob_map = segmentation_model.predict(image, threshold=threshold)
             overlay_image = segmentation_model.overlay_mask(image, mask)
+            
+            # Calculate metrics
+            metrics = segmentation_model.evaluate_prediction(mask)
+            area_percentage = metrics['area_ratio'] * 100
 
-        # Show overlay result
-        st.subheader("Segmentation Overlay")
-        st.image(overlay_image, caption="Overlay with Segmentation Mask", use_column_width=True)
-
+        with col2:
+            st.subheader("Segmentation Overlay")
+            st.image(overlay_image, caption="Overlay with Segmentation Mask", use_column_width=True)
+        
+        # Metrics section
+        st.subheader("Segmentation Metrics")
+        metric_col1, metric_col2 = st.columns(2)
+        
+        with metric_col1:
+            st.metric(
+                label="Area Coverage", 
+                value=f"{area_percentage:.1f}%",
+                help="Percentage of the image identified as breast tissue"
+            )
+        
+        with metric_col2:
+            # We don't have ground truth, so we can't calculate real Dice
+            # But we can note this for the user
+            st.info("Note: Dice coefficient requires ground truth mask for comparison")
+        
         # Show probability map
         st.subheader("Probability Map")
         fig, ax = plt.subplots()
-        ax.imshow(prob_map, cmap='viridis')
+        im = ax.imshow(prob_map, cmap='viridis')
         ax.axis('off')
+        fig.colorbar(im, ax=ax, label='Probability')
         st.pyplot(fig)
+        
+        # Export options
+        st.subheader("Export Results")
+        export_col1, export_col2 = st.columns(2)
+        
+        with export_col1:
+            # Convert overlay to bytes for download
+            overlay_bytes = io.BytesIO()
+            overlay_image.save(overlay_bytes, format='PNG')
+            
+            st.download_button(
+                label="Download Segmentation Overlay",
+                data=overlay_bytes.getvalue(),
+                file_name="breast_ultrasound_segmentation.png",
+                mime="image/png"
+            )
+            
+        with export_col2:
+            # Add report generation option
+            if st.button("Generate Report"):
+                report = f"""
+                # Breast Ultrasound Segmentation Report
+                
+                **Date:** {datetime.now().strftime("%Y-%m-%d %H:%M")}
+                
+                ## Segmentation Results
+                - **Threshold used:** {threshold}
+                - **Area coverage:** {area_percentage:.1f}%
+                
+                ## Notes
+                This is an automated segmentation using AI. Results should be verified by a medical professional.
+                """
+                
+                # Convert report to bytes for download
+                report_bytes = io.BytesIO(report.encode())
+                
+                st.download_button(
+                    label="Download Report (Markdown)",
+                    data=report_bytes.getvalue(),
+                    file_name="breast_segmentation_report.md",
+                    mime="text/markdown"
+                )
     else:
         st.info("Please upload an ultrasound image to begin segmentation.")
+        
+        # Show example images
+        st.subheader("Example Results")
+        st.markdown("""
+        The images below show examples of breast ultrasound segmentation:
+        - Original ultrasound image
+        - AI-generated segmentation mask overlaid in red
+        - Probability map showing confidence levels
+        
+        Upload your own image to try the segmentation.
+        """)
 
 # Debug information
 with st.expander("Debug information", expanded=False):

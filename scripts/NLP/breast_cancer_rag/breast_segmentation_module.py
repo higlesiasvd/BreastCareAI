@@ -236,6 +236,44 @@ class BreastSegmentationModel:
         binary_mask = (prob_map > threshold).astype(np.uint8)
         
         return binary_mask, prob_map
+        
+    def generate_visualization(self, image, threshold=0.5, return_figure=False):
+        """
+        Generate a complete visualization of the segmentation results
+        
+        Args:
+            image (PIL.Image): Input ultrasound image
+            threshold (float, optional): Threshold for binary segmentation. Defaults to 0.5.
+            return_figure (bool, optional): Whether to return the matplotlib figure
+                                           instead of saving to buffer. Defaults to False.
+            
+        Returns:
+            dict: Dictionary containing visualization elements
+                - 'original': Original image
+                - 'mask': Binary segmentation mask
+                - 'overlay': Image with overlaid segmentation
+                - 'prob_map': Probability map
+                - 'metrics': Dictionary of evaluation metrics
+        """
+        # Generate prediction
+        mask, prob_map = self.predict(image, threshold=threshold)
+        
+        # Calculate metrics
+        metrics = self.evaluate_prediction(mask)
+        
+        # Create overlay
+        overlay = self.overlay_mask(image, mask)
+        
+        # Convert to images for return
+        result = {
+            'original': image,
+            'mask': Image.fromarray((mask * 255).astype(np.uint8)),
+            'overlay': overlay,
+            'prob_map': prob_map,
+            'metrics': metrics
+        }
+        
+        return result
     
     def overlay_mask(self, image, mask, alpha=0.5, color=[255, 0, 0]):
         """
@@ -280,34 +318,64 @@ class BreastSegmentationModel:
         # Convert back to PIL image
         return Image.fromarray(overlay)
     
-    def generate_visualization(self, image, return_figure=False):
+    def dice_coefficient(self, mask1, mask2, smooth=1e-6):
         """
-        Generate a complete visualization of the segmentation results
+        Calculate Dice coefficient between two binary masks
+        
+        The Dice coefficient is a measure of overlap between two segmentations.
+        It ranges from 0 (no overlap) to 1 (perfect overlap).
         
         Args:
-            image (PIL.Image): Input ultrasound image
-            return_figure (bool, optional): Whether to return the matplotlib figure
-                                           instead of saving to buffer. Defaults to False.
+            mask1 (np.ndarray): First binary mask
+            mask2 (np.ndarray): Second binary mask
+            smooth (float): Smoothing factor to avoid division by zero
             
         Returns:
-            dict: Dictionary containing visualization elements
-                - 'original': Original image
-                - 'mask': Binary segmentation mask
-                - 'overlay': Image with overlaid segmentation
-                - 'prob_map': Probability map
+            float: Dice coefficient value between 0 and 1
         """
-        # Generate prediction
-        mask, prob_map = self.predict(image)
+        # Ensure masks are binary
+        mask1_bin = mask1.astype(bool)
+        mask2_bin = mask2.astype(bool)
         
-        # Create overlay
-        overlay = self.overlay_mask(image, mask)
+        # Calculate intersection and union
+        intersection = np.logical_and(mask1_bin, mask2_bin).sum()
+        union = mask1_bin.sum() + mask2_bin.sum()
         
-        # Convert to images for return
-        result = {
-            'original': image,
-            'mask': Image.fromarray((mask * 255).astype(np.uint8)),
-            'overlay': overlay,
-            'prob_map': prob_map
-        }
+        # Calculate Dice coefficient
+        if union == 0:
+            return 0.0
         
-        return result
+        dice = (2.0 * intersection + smooth) / (union + smooth)
+        return dice
+    
+    def evaluate_prediction(self, pred_mask, true_mask=None):
+        """
+        Evaluate the quality of a segmentation prediction
+        
+        Args:
+            pred_mask (np.ndarray): Predicted binary mask
+            true_mask (np.ndarray, optional): Ground truth mask for comparison
+                                             Default is None (no evaluation)
+                                             
+        Returns:
+            dict: Dictionary of evaluation metrics
+        """
+        metrics = {}
+        
+        # Calculate metrics if we have a ground truth mask
+        if true_mask is not None:
+            # Resize true mask to match prediction if needed
+            if pred_mask.shape != true_mask.shape:
+                # Convert to same size
+                from skimage.transform import resize
+                true_mask = resize(true_mask, pred_mask.shape, order=0, preserve_range=True).astype(pred_mask.dtype)
+            
+            # Calculate Dice coefficient
+            dice = self.dice_coefficient(pred_mask, true_mask)
+            metrics['dice'] = dice
+        
+        # Calculate area ratio (percentage of image segmented)
+        area_ratio = pred_mask.sum() / pred_mask.size
+        metrics['area_ratio'] = area_ratio
+        
+        return metrics

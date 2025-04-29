@@ -19,6 +19,9 @@ from breast_segmentation_module import BreastSegmentationModel
 import io
 from PIL import Image
 
+# Import the vision explainer module
+from vision_explainer import VisionExplainer
+
 # Try to import voice processing modules if available
 try:
     from voice_processor import add_voice_controls_to_sidebar, add_voice_interface_to_chat, audio_recorder_and_transcriber
@@ -27,9 +30,10 @@ except ImportError:
     voice_available = False
 
 # Page settings
-st.set_page_config(page_title="RAG System for Breast Cancer", page_icon="🎗️", layout="wide")
-st.title("🎗️ RAG System for Breast Cancer Counseling")
-st.markdown("Access verified medical information about breast cancer")
+st.set_page_config(page_title="BreastCare AI", page_icon="🎗️", layout="wide")
+st.title("🎗️ BreastCareAI - Breast Cancer Information and Counseling")
+st.caption("Your trusted AI companion for breast health guidance and support")
+#st.markdown("Access verified medical information about breast cancer")
 
 # Custom styles to enhance the chat interface
 st.markdown("""
@@ -193,6 +197,9 @@ if 'embedding_model' not in st.session_state:
 
 # Initialize breast segmentation model
 segmentation_model = BreastSegmentationModel(model_path="breast_segmentation_model.pth")
+
+# Initialize the vision explainer - uses local Ollama model
+vision_explainer = VisionExplainer(model_name="llama3.2-vision")
 
 # Add response model to the session
 if 'llm_model' not in st.session_state:
@@ -1674,6 +1681,33 @@ with tab6:
         fig.colorbar(im, ax=ax, label='Probability')
         st.pyplot(fig)
         
+        # AI Explanation Section
+        st.subheader("📋 AI Analysis & Explanation")
+        
+        with st.spinner("Generating AI analysis of the segmentation results..."):
+            try:
+                # Generate explanation using the vision model
+                explanation = vision_explainer.explain_segmentation(
+                    original_image=image,
+                    segmented_image=overlay_image,
+                    metrics=metrics
+                )
+                
+                # Show the combined image created for the vision model
+                temp_combined_path = os.path.join(tempfile.gettempdir(), "combined_segmentation.png")
+                if os.path.exists(temp_combined_path):
+                    combined_img = Image.open(temp_combined_path)
+                    st.image(combined_img, caption="Combined view analyzed by AI", use_column_width=True)
+                
+                # Display the AI explanation
+                st.markdown(explanation)
+                
+                # Add disclaimer
+                st.info("⚠️ This AI-generated analysis is for educational purposes only and should not replace professional medical evaluation.")
+            except Exception as e:
+                st.error(f"Error generating AI explanation: {str(e)}")
+                st.info("If the error persists, make sure Ollama is running with the 'llama3:vision' model available.")
+        
         # Export options
         st.subheader("Export Results")
         export_col1, export_col2 = st.columns(2)
@@ -1693,6 +1727,17 @@ with tab6:
         with export_col2:
             # Add report generation option
             if st.button("Generate Report"):
+                # Get explanation if not already generated
+                if 'explanation' not in locals():
+                    try:
+                        explanation = vision_explainer.explain_segmentation(
+                            original_image=image,
+                            segmented_image=overlay_image,
+                            metrics=metrics
+                        )
+                    except Exception as e:
+                        explanation = "AI explanation could not be generated."
+                
                 report = f"""
                 # Breast Ultrasound Segmentation Report
                 
@@ -1710,6 +1755,14 @@ with tab6:
                 - **IoU (Jaccard):** {metrics['iou']:.3f}
                 - **Sensitivity:** {metrics['sensitivity']:.3f}
                 - **Specificity:** {metrics['specificity']:.3f}
+                """
+                
+                # Add explanation to report
+                if 'explanation' in locals() and explanation:
+                    report += f"""
+                ## AI Analysis
+                
+                {explanation}
                 """
                 
                 report += """
@@ -1744,11 +1797,45 @@ with tab6:
         - Original ultrasound image
         - AI-generated segmentation mask overlaid in red
         - Probability map showing confidence levels
+        - AI-generated explanation of the segmentation results
         
-        Upload your own image to try the segmentation.
+        Upload your own image to try the segmentation and get an AI-powered analysis.
         
         **Tip**: The system will automatically look for a ground truth mask in the BUSI dataset to calculate the Dice coefficient.
+        
+        **About the AI Analysis**: The system uses a multimodal vision model (Llama 3 Vision) to analyze the segmentation results and provide a human-readable explanation. This feature helps interpret the metrics and understand what the segmentation is showing.
         """)
+        
+        # Add information about Ollama requirement
+        st.info("💡 To use the AI explanation feature, make sure you have Ollama running with the llama3:vision model already installed.")
+
+        
+        # Add alternative model options
+        with st.expander("Advanced: Alternative Vision Models"):
+            st.markdown("""
+            You can modify the vision explainer to use different models:
+            
+            1. **Ollama Models** (Local):
+               - `llama3:vision` (default, recommended)
+               - `bakllava:latest`
+               - Any other Ollama vision model
+            
+            2. **OpenAI Models** (API key required):
+               - GPT-4 Vision (`gpt-4-vision-preview`)
+               
+            To change the model, modify the `vision_explainer` initialization in the code:
+            ```python
+            # For Ollama
+            vision_explainer = VisionExplainer(model_provider="ollama", model_name="llama3:vision")
+            
+            # For OpenAI
+            vision_explainer = VisionExplainer(
+                model_provider="openai", 
+                model_name="gpt-4-vision-preview",
+                api_key="your-api-key-here"
+            )
+            ```
+            """)
 
 # Debug information
 with st.expander("Debug information", expanded=False):

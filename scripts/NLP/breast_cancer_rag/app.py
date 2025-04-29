@@ -123,7 +123,7 @@ try:
     # Check for available models
     if "llama3:8b" in result.stdout:
         available_models.append("llama3:8b")
-        st.success("✅ Model llama3:8b detected successfully")
+        #st.success("✅ Model llama3:8b detected successfully")
     else:
         st.warning("⚠️ llama3:8b not found. Make sure you have it installed")
         st.code("ollama pull llama3:8b", language="bash")
@@ -131,13 +131,13 @@ try:
     # Check if the phi2-breast-cancer model is available
     if "phi2-breast-cancer" in result.stdout:
         available_models.append("phi2-breast-cancer")
-        st.success("✅ Model phi2-breast-cancer detected successfully")
+        #st.success("✅ Model phi2-breast-cancer detected successfully")
     else:
         st.warning("⚠️ phi2-breast-cancer not found. If you want to use this model, make sure it's installed")
 
     if "breast-cancer-llama3" in result.stdout:
         available_models.append("breast-cancer-llama3")
-        st.success("✅ Modelo breast-cancer-llama3 detectado correctamente")
+        #st.success("✅ Modelo breast-cancer-llama3 detectado correctamente")
     else:
         st.warning("⚠️ breast-cancer-llama3 not found. If you want to use this model, execute :\n`ollama create breast-cancer-llama3 -f ./Modelfile`")
         

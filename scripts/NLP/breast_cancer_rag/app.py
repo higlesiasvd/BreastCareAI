@@ -1502,6 +1502,11 @@ with tab6:
         - It is calculated as: 2 × |X ∩ Y| / (|X| + |Y|), where X and Y are the predicted and true segmentation areas
         - Values above 0.7 typically indicate good segmentation quality
         
+        **Mask Detection:**
+        The system will automatically look for ground truth masks in:
+        1. Same directory with "_mask" suffix
+        2. BUSI dataset path: `/Volumes/Proyecto_Hugo/breast-cancer-analysis/datasets/Dataset_BUSI_with_GT`
+        
         **Note:** This tool is for educational purposes only and should not replace professional medical evaluation.
         """)
 
@@ -1514,6 +1519,24 @@ with tab6:
     if uploaded_image is not None:
         # Load the image
         image = Image.open(uploaded_image).convert('L')  # Convert to grayscale
+
+        # Attempt to save image temporarily to enable ground truth mask detection
+        temp_image_path = None
+        try:
+            # Create temporary file path
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_image_path = os.path.join(temp_dir, uploaded_image.name)
+            
+            # Save uploaded image to temp file
+            with open(temp_image_path, "wb") as f:
+                f.write(uploaded_image.getbuffer())
+                
+            st.caption(f"Processing image: {uploaded_image.name}")
+            
+        except Exception as e:
+            st.warning(f"Could not save temporary file: {str(e)}")
+            temp_image_path = None
 
         # Allow user to adjust threshold
         threshold = st.slider(
@@ -1537,9 +1560,17 @@ with tab6:
             mask, prob_map = segmentation_model.predict(image, threshold=threshold)
             overlay_image = segmentation_model.overlay_mask(image, mask)
             
-            # Calculate metrics
-            metrics = segmentation_model.evaluate_prediction(mask)
+            # Calculate metrics - now with image path and name for auto ground truth detection
+            metrics = segmentation_model.evaluate_prediction(
+                mask, 
+                image_path=temp_image_path,
+                image_name=uploaded_image.name
+            )
             area_percentage = metrics['area_ratio'] * 100
+            
+            # Show if a mask was found
+            if 'mask_source' in metrics:
+                st.success(f"Found ground truth mask: {os.path.basename(metrics['mask_source'])}")
 
         with col2:
             st.subheader("Segmentation Overlay")
@@ -1547,19 +1578,62 @@ with tab6:
         
         # Metrics section
         st.subheader("Segmentation Metrics")
-        metric_col1, metric_col2 = st.columns(2)
+        metrics_cols = st.columns(3)
         
-        with metric_col1:
+        with metrics_cols[0]:
             st.metric(
                 label="Area Coverage", 
                 value=f"{area_percentage:.1f}%",
                 help="Percentage of the image identified as breast tissue"
             )
         
-        with metric_col2:
-            # We don't have ground truth, so we can't calculate real Dice
-            # But we can note this for the user
-            st.info("Note: Dice coefficient requires ground truth mask for comparison")
+        with metrics_cols[1]:
+            if 'dice' in metrics:
+                # We have a ground truth comparison
+                dice_value = metrics['dice']
+                st.metric(
+                    label="Dice Coefficient", 
+                    value=f"{dice_value:.3f}",
+                    help="Measure of overlap between predicted and true segmentation. Higher is better."
+                )
+                
+                # Add a visual indicator of segmentation quality
+                if dice_value > 0.8:
+                    quality = "Excellent"
+                    color = "green"
+                elif dice_value > 0.7:
+                    quality = "Good"
+                    color = "lightgreen"
+                elif dice_value > 0.5:
+                    quality = "Fair"
+                    color = "orange"
+                else:
+                    quality = "Poor"
+                    color = "red"
+                    
+                st.markdown(f"<div style='color:{color};font-weight:bold;'>Quality: {quality}</div>", unsafe_allow_html=True)
+            else:
+                st.info("No ground truth mask found for Dice calculation")
+                st.caption("System searched in temporary directory and BUSI dataset")
+        
+        with metrics_cols[2]:
+            if 'sensitivity' in metrics and 'specificity' in metrics:
+                st.metric(
+                    label="Sensitivity", 
+                    value=f"{metrics['sensitivity']:.3f}",
+                    help="True positive rate (recall)"
+                )
+                st.metric(
+                    label="Specificity", 
+                    value=f"{metrics['specificity']:.3f}",
+                    help="True negative rate"
+                )
+            elif 'dice' in metrics:
+                st.metric(
+                    label="IoU (Jaccard)", 
+                    value=f"{metrics['iou']:.3f}",
+                    help="Intersection over Union between predicted and true segmentation"
+                )
         
         # Show probability map
         st.subheader("Probability Map")
@@ -1596,7 +1670,18 @@ with tab6:
                 ## Segmentation Results
                 - **Threshold used:** {threshold}
                 - **Area coverage:** {area_percentage:.1f}%
+                """
                 
+                # Add Dice score if available
+                if 'dice' in metrics:
+                    report += f"""
+                - **Dice coefficient:** {metrics['dice']:.3f}
+                - **IoU (Jaccard):** {metrics['iou']:.3f}
+                - **Sensitivity:** {metrics['sensitivity']:.3f}
+                - **Specificity:** {metrics['specificity']:.3f}
+                """
+                
+                report += """
                 ## Notes
                 This is an automated segmentation using AI. Results should be verified by a medical professional.
                 """
@@ -1610,6 +1695,14 @@ with tab6:
                     file_name="breast_segmentation_report.md",
                     mime="text/markdown"
                 )
+                
+        # Clean up temporary files
+        try:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+        except Exception as e:
+            st.warning(f"Error cleaning up temporary files: {str(e)}")
+                
     else:
         st.info("Please upload an ultrasound image to begin segmentation.")
         
@@ -1622,6 +1715,8 @@ with tab6:
         - Probability map showing confidence levels
         
         Upload your own image to try the segmentation.
+        
+        **Tip**: The system will automatically look for a ground truth mask in the BUSI dataset to calculate the Dice coefficient.
         """)
 
 # Debug information

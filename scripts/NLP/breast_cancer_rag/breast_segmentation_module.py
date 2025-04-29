@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import io
 import cv2
+import os
 
 # Define neural network components
 class ConvBlock(nn.Module):
@@ -348,19 +349,82 @@ class BreastSegmentationModel:
         dice = (2.0 * intersection + smooth) / (union + smooth)
         return dice
     
-    def evaluate_prediction(self, pred_mask, true_mask=None):
+    def evaluate_prediction(self, pred_mask, true_mask=None, image_path=None, image_name=None):
         """
         Evaluate the quality of a segmentation prediction
         
         Args:
             pred_mask (np.ndarray): Predicted binary mask
             true_mask (np.ndarray, optional): Ground truth mask for comparison
-                                             Default is None (no evaluation)
+            image_path (str, optional): Path to the original image
+            image_name (str, optional): Name of the original image file
                                              
         Returns:
             dict: Dictionary of evaluation metrics
         """
         metrics = {}
+        
+        # Try to find a ground truth mask if not provided
+        if true_mask is None:
+            # First, check standard naming convention (adding _mask suffix)
+            if image_path is not None:
+                try:
+                    path_parts = image_path.rsplit('.', 1)
+                    if len(path_parts) == 2:
+                        mask_path = f"{path_parts[0]}_mask.{path_parts[1]}"
+                        if os.path.exists(mask_path):
+                            try:
+                                true_mask = np.array(Image.open(mask_path).convert('L'))
+                                true_mask = (true_mask > 127).astype(np.uint8)
+                                metrics['mask_source'] = mask_path
+                                print(f"Found mask using standard naming: {mask_path}")
+                            except Exception as e:
+                                print(f"Error loading standard mask: {str(e)}")
+                except Exception as e:
+                    print(f"Error creating standard mask path: {str(e)}")
+            
+            # If that didn't work, try direct dataset lookup in BUSI dataset path
+            if true_mask is None and (image_name is not None or image_path is not None):
+                try:
+                    # Determine image name from path if not provided
+                    if image_name is None and image_path is not None:
+                        image_name = os.path.basename(image_path)
+                    
+                    if image_name:
+                        # Try to find mask in BUSI dataset
+                        busi_dataset_path = "/Volumes/Proyecto_Hugo/breast-cancer-analysis/datasets/Dataset_BUSI_with_GT"
+                        
+                        # Look through subdirectories for matching mask
+                        for subdir in ['benign', 'malignant', 'normal']:
+                            full_dir = os.path.join(busi_dataset_path, subdir)
+                            if not os.path.exists(full_dir):
+                                continue
+                                
+                            for root, dirs, files in os.walk(full_dir):
+                                for file in files:
+                                    # Match image name with mask file naming pattern
+                                    if file.endswith('_mask.png') or file.endswith('_mask.jpg'):
+                                        # Extract base name without _mask for comparison
+                                        base_name = file.rsplit('_mask', 1)[0]
+                                        img_base_name = image_name.rsplit('.', 1)[0]
+                                        
+                                        if base_name == img_base_name or base_name in img_base_name:
+                                            mask_path = os.path.join(root, file)
+                                            try:
+                                                true_mask = np.array(Image.open(mask_path).convert('L'))
+                                                true_mask = (true_mask > 127).astype(np.uint8)
+                                                metrics['mask_source'] = mask_path
+                                                print(f"Found mask in BUSI dataset: {mask_path}")
+                                                break
+                                            except Exception as e:
+                                                print(f"Error loading BUSI mask: {str(e)}")
+                                                
+                                if true_mask is not None:
+                                    break
+                            if true_mask is not None:
+                                break
+                except Exception as e:
+                    print(f"Error searching BUSI dataset: {str(e)}")
         
         # Calculate metrics if we have a ground truth mask
         if true_mask is not None:
@@ -373,6 +437,24 @@ class BreastSegmentationModel:
             # Calculate Dice coefficient
             dice = self.dice_coefficient(pred_mask, true_mask)
             metrics['dice'] = dice
+            
+            # Calculate Intersection over Union (IoU) / Jaccard Index
+            intersection = np.logical_and(pred_mask, true_mask).sum()
+            union = np.logical_or(pred_mask, true_mask).sum()
+            iou = intersection / union if union > 0 else 0.0
+            metrics['iou'] = iou
+            
+            # Calculate sensitivity (recall) and specificity
+            true_positive = np.logical_and(pred_mask, true_mask).sum()
+            false_positive = np.logical_and(pred_mask, np.logical_not(true_mask)).sum()
+            false_negative = np.logical_and(np.logical_not(pred_mask), true_mask).sum()
+            true_negative = np.logical_and(np.logical_not(pred_mask), np.logical_not(true_mask)).sum()
+            
+            sensitivity = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0.0
+            specificity = true_negative / (true_negative + false_positive) if (true_negative + false_positive) > 0 else 0.0
+            
+            metrics['sensitivity'] = sensitivity
+            metrics['specificity'] = specificity
         
         # Calculate area ratio (percentage of image segmented)
         area_ratio = pred_mask.sum() / pred_mask.size

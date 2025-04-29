@@ -482,3 +482,357 @@ class BreastSegmentationModel:
                 metrics['normal_case'] = True
         
         return metrics
+    def get_activation_gradients(self, image, target_layer=None):
+        """Compute activation gradients using the GradCAM approach"""
+        if self.model is None:
+            return None, None
+            
+        # Preprocess image
+        img_tensor = self.preprocess_image(image)
+        img_tensor.requires_grad = True  # Ensure gradients are enabled
+        
+        # Store activations and gradients
+        activations = {}
+        gradients = {}
+        
+        # Hook to capture activations during forward pass
+        def forward_hook(module, input, output):
+            activations['value'] = output
+        
+        # Hook to capture gradients during backward pass
+        def backward_hook(module, grad_input, grad_output):
+            gradients['value'] = grad_output[0]
+        
+        # Automatically determine target layer if not provided
+        if target_layer is None:
+            # For a U-Net, the last encoder or first decoder usually holds the most relevant information
+            target_layer_options = ['decoder_4', 'decoder_1', 'conv_block']
+        else:
+            target_layer_options = [target_layer]
+        
+        # Try to find a valid layer
+        target_module = None
+        used_layer_name = None
+        
+        for layer_name in target_layer_options:
+            for name, module in self.model.named_modules():
+                if layer_name in name:
+                    target_module = module
+                    used_layer_name = name
+                    break
+            if target_module is not None:
+                break
+        
+        if target_module is None:
+            # Fallback: use any convolutional layer near the output
+            for name, module in self.model.named_modules():
+                if isinstance(module, torch.nn.Conv2d) and 'decoder' in name:
+                    target_module = module
+                    used_layer_name = name
+                    break
+        
+        if target_module is None:
+            print("Could not find a suitable convolutional layer for Grad-CAM")
+            return None, None
+        
+        print(f"Using layer '{used_layer_name}' for Grad-CAM")
+        
+        # Register hooks
+        handle_forward = target_module.register_forward_hook(forward_hook)
+        handle_backward = target_module.register_full_backward_hook(backward_hook)
+        
+        # Forward pass
+        self.model.zero_grad()
+        output = self.model(img_tensor)
+        
+        # Create a more effective target for backpropagation
+        # Aim to maximize regions predicted as part of the segment
+        mask_pred = output.squeeze()
+        
+        # Create a target tensor to encourage positive predictions
+        target = torch.ones_like(output)
+        
+        # Backward pass
+        if output.requires_grad:
+            output.backward(gradient=target)
+        else:
+            print("Output did not have requires_grad, recreating with gradients enabled")
+            self.model.zero_grad()
+            
+            # Remove hooks
+            handle_forward.remove()
+            handle_backward.remove()
+            
+            # Recreate tensors with requires_grad=True
+            img_tensor = self.preprocess_image(image)
+            img_tensor.requires_grad = True
+            
+            # Re-register hooks
+            handle_forward = target_module.register_forward_hook(forward_hook)
+            handle_backward = target_module.register_full_backward_hook(backward_hook)
+            
+            # Forward and backward pass again
+            output = self.model(img_tensor)
+            output.backward(gradient=target)
+        
+        # Remove hooks
+        handle_forward.remove()
+        handle_backward.remove()
+        
+        # If we still get null values, fallback to simulated activation
+        if 'value' not in activations or 'value' not in gradients:
+            print("Gradients or activations are missing, using fallback approach")
+            mask, prob_map = self.predict(image)
+            
+            pseudo_activation = torch.from_numpy(prob_map).unsqueeze(0).unsqueeze(0)
+            pseudo_gradient = torch.ones_like(pseudo_activation)
+            
+            return pseudo_activation, pseudo_gradient
+        
+        # Check if the returned tensors are not zero
+        act_value = activations['value']
+        grad_value = gradients['value']
+        
+        if torch.sum(act_value) == 0 or torch.sum(grad_value) == 0:
+            print(f"Warning: activation or gradient has zero sum (act: {torch.sum(act_value).item()}, grad: {torch.sum(grad_value).item()})")
+            mask, prob_map = self.predict(image)
+            pseudo_activation = torch.from_numpy(prob_map).unsqueeze(0).unsqueeze(0)
+            pseudo_gradient = torch.ones_like(pseudo_activation)
+            return pseudo_activation, pseudo_gradient
+        
+        return activations['value'], gradients['value']
+
+    def generate_gradcam(self, image, threshold=0.5):
+        """Generate Grad-CAM visualization for model explainability"""
+        # Get activations and gradients
+        activations, gradients = self.get_activation_gradients(image)
+        
+        if activations is None or gradients is None:
+            print("Could not obtain activations or gradients, using probability map instead.")
+            _, prob_map = self.predict(image, threshold=threshold)
+
+            import cv2
+            prob_map_resized = cv2.resize(prob_map, (image.width, image.height))
+            heatmap = (prob_map_resized * 255).astype(np.uint8)
+            heatmap_colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+
+            img_array = np.array(image.convert('RGB'))
+            img_cv = img_array[:, :, ::-1]  # Convert from RGB to BGR (OpenCV format)
+
+            # Make sure both heatmap and image have the same dimensions
+            if len(heatmap_colored.shape) == 2:
+                heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_GRAY2BGR)
+            # Resize heatmap_colored if needed
+            if heatmap_colored.shape[:2] != img_cv.shape[:2]:
+                heatmap_colored = cv2.resize(heatmap_colored, (img_cv.shape[1], img_cv.shape[0]))
+
+            # Now both are (height, width, 3) and uint8
+            try:
+                overlay = cv2.addWeighted(img_cv, 0.7, heatmap_colored, 0.3, 0)
+            except cv2.error as e:
+                print(f"Overlay error: {e}")
+                overlay = img_cv.copy()
+
+            # Try to overlay the heatmap on the image
+            try:
+                overlay = cv2.addWeighted(img_cv, 0.7, heatmap_colored, 0.3, 0)
+            except cv2.error as e:
+                print(f"Overlay error: {e}")
+                overlay = img_cv.copy()
+
+            overlay_rgb = overlay[:, :, ::-1]  # Convert back to RGB
+            overlay_pil = Image.fromarray(overlay_rgb)
+
+            return overlay_pil, prob_map_resized
+        
+        # Check if tensors contain meaningful values
+        if torch.sum(activations) == 0:
+            print("Warning: All activations are zero")
+        if torch.sum(gradients) == 0:
+            print("Warning: All gradients are zero")
+        
+        # Compute weights - global average of gradients
+        weights = torch.mean(gradients, dim=(2, 3), keepdim=True)
+        
+        # Apply weights to activations
+        cam = torch.sum(weights * activations, dim=1).squeeze()
+        
+        # Apply ReLU to focus on positively influential features
+        cam = torch.nn.functional.relu(cam)
+        
+        # Normalize between 0 and 1
+        if torch.max(cam) > 0:
+            cam = cam / torch.max(cam)
+        else:
+            print("Warning: CAM max is zero or negative")
+            _, prob_map = self.predict(image, threshold=threshold)
+            
+            import cv2
+            heatmap = (prob_map * 255).astype(np.uint8)
+            heatmap_colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+            
+            img_array = np.array(image.convert('RGB'))
+            img_cv = img_array[:, :, ::-1]  # RGB to BGR
+            
+            # Convert grayscale to 3-channel color if needed
+            if len(heatmap_colored.shape) == 2 or heatmap_colored.shape[2] == 1:
+                heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_GRAY2BGR)
+
+            # Resize if dimensions don't match
+            if heatmap_colored.shape[:2] != img_cv.shape[:2]:
+                heatmap_colored = cv2.resize(heatmap_colored, (img_cv.shape[1], img_cv.shape[0]))
+                
+            overlay = cv2.addWeighted(img_cv, 0.7, heatmap_colored, 0.3, 0)
+            overlay_rgb = overlay[:, :, ::-1]  # BGR to RGB
+            overlay_pil = Image.fromarray(overlay_rgb)
+            
+            return overlay_pil, prob_map
+        
+        # Resize CAM to match original image size
+        import torch.nn.functional as F
+        cam = cam.unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+        cam = F.interpolate(cam, size=(image.height, image.width), mode='bicubic', align_corners=False)
+        cam = cam.squeeze().detach().cpu().numpy()
+        cam = np.clip(cam, 0.0, 1.0)
+        
+        # Print stats for debugging
+        print(f"CAM stats - min: {np.min(cam)}, max: {np.max(cam)}, mean: {np.mean(cam)}")
+        
+        # Create heatmap overlay
+        import cv2
+        heatmap = (cam * 255).astype(np.uint8)
+        heatmap_colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+
+        img_array = np.array(image.convert('RGB'))
+        img_cv = img_array[:, :, ::-1]  # Convert from RGB to BGR
+
+        # Make sure both images are the same size
+        if heatmap_colored.shape[:2] != img_cv.shape[:2]:
+            heatmap_colored = cv2.resize(heatmap_colored, (img_cv.shape[1], img_cv.shape[0]))
+
+        try:
+            overlay = cv2.addWeighted(img_cv, 0.7, heatmap_colored, 0.3, 0)
+        except cv2.error as e:
+            print(f"Overlay error: {e}, using original image")
+            overlay = img_cv.copy()
+
+        overlay_rgb = overlay[:, :, ::-1]  # Convert back to RGB
+        overlay_pil = Image.fromarray(overlay_rgb)
+
+        return overlay_pil, cam
+
+    def explain_segmentation_result(self, image, mask, prob_map):
+        """Generate visual explanation of segmentation focusing on model behavior"""
+        # Generate Grad-CAM to show model attention
+        cam_overlay, attention_map = self.generate_gradcam(image)
+        
+        # Create a multi-panel explanation
+        import matplotlib.pyplot as plt
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+        
+        # Original image
+        axs[0, 0].imshow(image, cmap='gray')
+        axs[0, 0].set_title('Original Image')
+        axs[0, 0].axis('off')
+        
+        # Segmentation overlay
+        overlay = self.overlay_mask(image, mask)
+        axs[0, 1].imshow(overlay)
+        axs[0, 1].set_title('Segmentation Result')
+        axs[0, 1].axis('off')
+        
+        # Grad-CAM visualization
+        axs[1, 0].imshow(cam_overlay)
+        axs[1, 0].set_title('Model Attention (Grad-CAM)')
+        axs[1, 0].axis('off')
+        
+        # Probability map
+        axs[1, 1].imshow(prob_map, cmap='viridis')
+        axs[1, 1].set_title('Probability Map')
+        axs[1, 1].axis('off')
+        plt.colorbar(axs[1, 1].imshow(prob_map, cmap='viridis'), ax=axs[1, 1])
+        
+        # Add overall title
+        plt.suptitle('Segmentation Explanation', fontsize=16)
+        plt.tight_layout()
+        
+        # Save to a buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        
+        # Load image from buffer
+        explanation_img = Image.open(buf)
+        
+        return explanation_img
+
+    def analyze_feature_importance(self, image, mask):
+        """Analyze which image features most influenced the segmentation result"""
+        # Generate grad-cam for feature importance
+        _, attention_map = self.generate_gradcam(image)
+        
+        # Ensure positive values to avoid issues with the logarithm
+        attention_map_safe = np.clip(attention_map, 1e-10, 1.0)
+        
+        if np.sum(attention_map_safe) > 0:
+            attention_map_normalized = attention_map_safe / np.sum(attention_map_safe)
+        else:
+            attention_map_normalized = np.ones_like(attention_map_safe) / attention_map_safe.size
+        
+        # Calculate entropy correctly over the normalized distribution
+        entropy = -np.sum(attention_map_normalized * np.log2(attention_map_normalized))
+        
+        # Limit entropy to a reasonable range (the theoretical maximum would be log2(N) where N is the number of pixels)
+        max_theoretical_entropy = np.log2(attention_map.size)
+        normalized_entropy = entropy / max_theoretical_entropy  # Normalized between 0-1
+        
+        importance_stats = {
+            'max_importance': float(np.max(attention_map)),
+            'mean_importance': float(np.mean(attention_map)),
+            'importance_entropy': float(entropy),  
+            'normalized_entropy': float(normalized_entropy),  # Normalized version for better interpretation (0-1)
+            'importance_top10_percent': float(np.percentile(attention_map[attention_map > 0], 90) if np.any(attention_map > 0) else 0.0),
+            'importance_contiguity': self._calculate_contiguity(attention_map > 0.5)
+        }
+        
+        # Identify whether model focuses on boundaries or interiors
+        boundary_focus = self._calculate_boundary_focus(mask, attention_map)
+        importance_stats['boundary_focus'] = boundary_focus
+        
+        return importance_stats
+
+    def _calculate_contiguity(self, mask):
+        """Calculate how contiguous a mask is (higher = more contiguous)"""
+        from scipy import ndimage
+        if not np.any(mask):
+            return 0
+            
+        # Label connected components
+        labels, num = ndimage.label(mask)
+        
+        # Calculate size of each component
+        component_sizes = np.bincount(labels.flatten())[1:]
+        
+        # Calculate contiguity as percentage of largest component
+        if len(component_sizes) > 0:
+            return float(np.max(component_sizes) / np.sum(component_sizes))
+        return 0.0
+
+    def _calculate_boundary_focus(self, mask, attention_map):
+        """Calculate whether model focuses more on boundaries (1) or interiors (0)"""
+        from scipy import ndimage
+        if not np.any(mask):
+            return 0
+            
+        # Get boundary of mask
+        boundary = ndimage.binary_dilation(mask) & ~mask
+        
+        # Calculate mean attention on boundary vs interior
+        boundary_attention = np.mean(attention_map[boundary])
+        interior_attention = np.mean(attention_map[mask])
+        
+        # Return normalized ratio (0 = interior focus, 1 = boundary focus)
+        if interior_attention > 0:
+            ratio = boundary_attention / (boundary_attention + interior_attention)
+            return float(ratio)
+        return 0.5  # Default if interior has no attention

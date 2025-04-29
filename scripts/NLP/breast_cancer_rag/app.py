@@ -1681,6 +1681,109 @@ with tab6:
         fig.colorbar(im, ax=ax, label='Probability')
         st.pyplot(fig)
         
+        # Explainability section
+        st.subheader("Model Explainability")
+        
+        explain_button = st.button("Generate Model Explainability")
+        
+        if explain_button:
+            with st.spinner("Generating explainability visualization..."):
+                # Generate Grad-CAM visualization
+                cam_overlay, attention_map = segmentation_model.generate_gradcam(image, threshold=threshold)
+                
+                # Generate comprehensive explanation
+                explanation_img = segmentation_model.explain_segmentation_result(image, mask, prob_map)
+                
+                # Analyze feature importance
+                importance_stats = segmentation_model.analyze_feature_importance(image, mask)
+                
+                # Display explanations
+                st.subheader("Model Attention (Grad-CAM)")
+                st.image(cam_overlay, caption="Regions the model focused on", use_column_width=True)
+                
+                st.subheader("Comprehensive Explanation")
+                st.image(explanation_img, caption="Multi-panel explanation", use_column_width=True)
+                
+                # Display feature importance statistics
+                st.subheader("Feature Importance Analysis")
+
+                # Create columns for metrics
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric(
+                        label="Max Importance", 
+                        value=f"{importance_stats['max_importance']:.3f}",
+                        help="Highest attention value in the image. Higher values indicate stronger focus on certain areas."
+                    )
+                    boundary_focus = importance_stats['boundary_focus'] * 100
+                    st.metric(
+                        label="Boundary Focus", 
+                        value=f"{boundary_focus:.1f}%", 
+                        delta="Edge-focused" if boundary_focus > 60 else "Region-focused",
+                        help="Indicates whether the model focuses more on region boundaries (edges) or interiors. Values closer to 100% indicate stronger focus on boundaries."
+                    )
+
+                with col2:
+                    st.metric(
+                        label="Mean Importance", 
+                        value=f"{importance_stats['mean_importance']:.3f}",
+                        help="Average attention value across the entire image. Indicates overall attention intensity."
+                    )
+                    
+                    if 'normalized_entropy' in importance_stats:
+                        st.metric(
+                            label="Attention Entropy", 
+                            value=f"{importance_stats['normalized_entropy']:.3f}",
+                            help="Measures how uniformly distributed the model's attention is (0-1 scale). Values closer to 1 indicate more dispersed attention, values closer to 0 show more focused attention on specific regions."
+                        )
+                    else:
+                        st.metric(
+                            label="Importance Entropy", 
+                            value=f"{importance_stats['importance_entropy']:.3f}",
+                            help="Measures how uniformly distributed the model's attention is. Higher values indicate more dispersed attention, lower values show more focused attention."
+                        )
+
+                with col3:
+                    st.metric(
+                        label="Contiguity", 
+                        value=f"{importance_stats['importance_contiguity']:.3f}", 
+                        delta="Focused" if importance_stats['importance_contiguity'] > 0.7 else "Dispersed",
+                        help="Measures how connected or clustered the areas of attention are. Values closer to 1 indicate a single concentrated area of focus, while lower values indicate multiple separated regions of attention."
+                    )
+                    st.metric(
+                        label="Top 10% Importance", 
+                        value=f"{importance_stats['importance_top10_percent']:.3f}",
+                        help="Average attention value in the most attended 10% of the image. Shows intensity of the model's peak attention areas."
+                    )
+                
+                # Technical explanation
+                with st.expander("About Grad-CAM Explainability", expanded=False):
+                    st.markdown("""
+                    ### Gradient-weighted Class Activation Mapping (Grad-CAM)
+                    
+                    Grad-CAM is a technique that uses the gradients flowing into the final convolutional layer 
+                    to produce a coarse localization map highlighting important regions that influenced the model's decisions.
+                    
+                    **How it works:**
+                    1. Forward pass through the network to get predictions
+                    2. Compute gradients of the output with respect to feature maps of a convolutional layer
+                    3. Global average pooling of gradients to get weights for each feature map
+                    4. Weighted combination of feature maps followed by ReLU
+                    
+                    **Interpretation:**
+                    - **Red/yellow areas**: Regions the model focused on most
+                    - **Blue areas**: Regions with minimal influence on the prediction
+                    
+                    **Metrics explained:**
+                    - **Boundary Focus**: Whether the model focuses more on edges (100%) or regions (0%)
+                    - **Contiguity**: How concentrated the model's attention is (higher = more focused)
+                    - **Importance Entropy**: Measures how uniformly attention is distributed
+                    
+                    This explainability helps understand what image features the model considers important
+                    for segmentation decisions.
+                    """)
+        
         # AI Explanation Section
         st.subheader("📋 AI Analysis & Explanation")
         
@@ -1780,6 +1883,135 @@ with tab6:
                     mime="text/markdown"
                 )
                 
+        # PSO Optimization section 
+        st.header("Parameter Optimization")
+        
+        with st.expander("Parameter Optimization with PSO", expanded=False):
+            st.markdown("""
+            ### Particle Swarm Optimization for Segmentation Parameters
+            
+            This module uses Particle Swarm Optimization (PSO) to find the optimal segmentation 
+            parameters for breast ultrasound images. PSO is a metaheuristic optimization algorithm 
+            inspired by social behavior of bird flocking or fish schooling.
+            
+            The optimization focuses on:
+            - **Threshold**: Cutoff value for segmentation (0.1 - 0.9)
+            - **Min Area**: Minimum region size to keep (10 - 200 pixels)
+            - **Smoothing**: Post-processing smoothing factor (0 - 5)
+            
+            **Technical details**: The algorithm uses 15 particles over 25 iterations with 
+            cognitive and social coefficients of 1.5 and inertia weight of 0.7.
+            """)
+            
+            run_optimization = st.button("Run Parameter Optimization")
+            
+            if run_optimization:
+                with st.spinner("Setting up optimization environment..."):
+                    # Import the optimizer
+                    from segmentation_optimizer import SegmentationPSO
+                    
+                    # Prepare sample images for optimization
+                    if uploaded_image is not None:
+                        # Use the current image
+                        validation_images = [image]
+                        
+                        if 'sample_images' not in st.session_state:
+                            # Default to just the current image
+                            st.session_state.sample_images = validation_images
+                    else:
+                        # No image uploaded, provide a message
+                        st.warning("Please upload an image first")
+                        st.stop()
+                
+                # Create optimization progress indicators
+                progress_bar = st.progress(0)
+                progress_text = st.empty()
+                
+                def progress_callback(iteration, max_iterations, current_score):
+                    progress = (iteration + 1) / max_iterations
+                    progress_bar.progress(progress)
+                    progress_text.text(f"Iteration {iteration+1}/{max_iterations} - Current Score: {current_score:.4f}")
+                
+                # Run PSO
+                with st.spinner("Running PSO optimization..."):
+                    # Initialize optimizer
+                    pso = SegmentationPSO(
+                        segmentation_model=segmentation_model,
+                        validation_images=st.session_state.sample_images,
+                        num_particles=15,
+                        max_iterations=25
+                    )
+                    
+                    # Run optimization
+                    best_params, best_score, history = pso.optimize(progress_callback)
+                    
+                    # Display results
+                    st.success(f"Optimization complete! Best score: {best_score:.4f}")
+                    
+                    # Show best parameters
+                    st.subheader("Optimized Parameters")
+                    for param, value in best_params.items():
+                        st.write(f"**{param}:** {value:.4f}")
+                    
+                    # Generate and display visualization
+                    st.subheader("Optimization Process Visualization")
+                    fig = pso.visualize_optimization()
+                    st.pyplot(fig)
+                    
+                    # Show effect of different parameters
+                    st.subheader("Parameter Effect Visualization")
+                    param_effect_fig = pso.visualize_parameters_effect(image)
+                    st.pyplot(param_effect_fig)
+                    
+                    # Save parameters to session state
+                    st.session_state.optimized_params = best_params
+                    
+                    # Apply optimized parameters to current image
+                    if st.button("Apply optimized parameters to current image"):
+                        with st.spinner("Applying optimized parameters..."):
+                            # Apply threshold parameter
+                            optimized_threshold = best_params['threshold']
+                            mask, prob_map = segmentation_model.predict(image, threshold=optimized_threshold)
+                            
+                            # Apply min_area filtering
+                            from skimage import measure
+                            labels = measure.label(mask)
+                            regions = measure.regionprops(labels)
+                            
+                            optimized_min_area = best_params['min_area']
+                            filtered_mask = np.zeros_like(mask)
+                            for region in regions:
+                                if region.area >= optimized_min_area:
+                                    filtered_mask[labels == region.label] = 1
+                            
+                            # Create overlay
+                            overlay_image = segmentation_model.overlay_mask(image, filtered_mask)
+                            
+                            # Display result
+                            st.image(overlay_image, caption="Segmentation with Optimized Parameters", use_column_width=True)
+                            
+                    # Technical explanation of PSO
+                    with st.expander("How PSO Works", expanded=False):
+                        st.markdown("""
+                        ### Particle Swarm Optimization (PSO) Explained
+                        
+                        PSO is an optimization technique inspired by the social behavior of birds flocking:
+                        
+                        1. **Initialization**: Multiple "particles" (potential solutions) are randomly placed in the parameter space
+                        2. **Evaluation**: Each particle's position is evaluated using a fitness function
+                        3. **Update**: Particles update their velocity and position based on:
+                           - Their personal best position
+                           - The global best position found by any particle
+                           - An inertia factor to maintain momentum
+                        4. **Convergence**: Through multiple iterations, particles converge around optimal solutions
+                        
+                        This results in an efficient exploration of the parameter space to find optimal values.
+                        
+                        **PSO in Segmentation**: For breast ultrasound segmentation, PSO helps find optimal threshold, 
+                        region size, and smoothing parameters that maximize segmentation quality measured by region 
+                        properties and, when available, overlap with ground truth.
+                        """)
+                        
         # Clean up temporary files
         try:
             if temp_image_path and os.path.exists(temp_image_path):
@@ -1808,34 +2040,6 @@ with tab6:
         
         # Add information about Ollama requirement
         st.info("💡 To use the AI explanation feature, make sure you have Ollama running with the llama3:vision model already installed.")
-
-        
-        # Add alternative model options
-        with st.expander("Advanced: Alternative Vision Models"):
-            st.markdown("""
-            You can modify the vision explainer to use different models:
-            
-            1. **Ollama Models** (Local):
-               - `llama3:vision` (default, recommended)
-               - `bakllava:latest`
-               - Any other Ollama vision model
-            
-            2. **OpenAI Models** (API key required):
-               - GPT-4 Vision (`gpt-4-vision-preview`)
-               
-            To change the model, modify the `vision_explainer` initialization in the code:
-            ```python
-            # For Ollama
-            vision_explainer = VisionExplainer(model_provider="ollama", model_name="llama3:vision")
-            
-            # For OpenAI
-            vision_explainer = VisionExplainer(
-                model_provider="openai", 
-                model_name="gpt-4-vision-preview",
-                api_key="your-api-key-here"
-            )
-            ```
-            """)
 
 # Debug information
 with st.expander("Debug information", expanded=False):

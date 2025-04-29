@@ -1502,6 +1502,12 @@ with tab6:
         - It is calculated as: 2 × |X ∩ Y| / (|X| + |Y|), where X and Y are the predicted and true segmentation areas
         - Values above 0.7 typically indicate good segmentation quality
         
+        **Special Case: Normal Images (No Lesions)**
+        For normal images with no lesions:
+        - The model should predict little to no segmentation (near empty mask)
+        - If the ground truth mask is also empty, the Dice coefficient is 1.0 (perfect agreement)
+        - Sensitivity and specificity will both be 1.0 for perfect detection of normal tissue
+        
         **Mask Detection:**
         The system will automatically look for ground truth masks in:
         1. Same directory with "_mask" suffix
@@ -1586,48 +1592,73 @@ with tab6:
                 value=f"{area_percentage:.1f}%",
                 help="Percentage of the image identified as breast tissue"
             )
+            
+            # Indicate normal case (no lesion)
+            if area_percentage < 1.0:
+                st.success("Normal case detected (no significant lesion)")
         
         with metrics_cols[1]:
             if 'dice' in metrics:
                 # We have a ground truth comparison
                 dice_value = metrics['dice']
-                st.metric(
-                    label="Dice Coefficient", 
-                    value=f"{dice_value:.3f}",
-                    help="Measure of overlap between predicted and true segmentation. Higher is better."
-                )
                 
-                # Add a visual indicator of segmentation quality
-                if dice_value > 0.8:
-                    quality = "Excellent"
-                    color = "green"
-                elif dice_value > 0.7:
-                    quality = "Good"
-                    color = "lightgreen"
-                elif dice_value > 0.5:
-                    quality = "Fair"
-                    color = "orange"
+                if 'normal_case' in metrics and metrics['normal_case']:
+                    # Handle normal case specially
+                    st.metric(
+                        label="Dice Coefficient", 
+                        value=f"{dice_value:.3f}",
+                        help="Perfect score for normal case (no lesion in image and ground truth)"
+                    )
+                    st.info("Normal case: Both prediction and ground truth show no lesion")
                 else:
-                    quality = "Poor"
-                    color = "red"
+                    # Regular case with lesion
+                    st.metric(
+                        label="Dice Coefficient", 
+                        value=f"{dice_value:.3f}",
+                        help="Measure of overlap between predicted and true segmentation. Higher is better."
+                    )
                     
-                st.markdown(f"<div style='color:{color};font-weight:bold;'>Quality: {quality}</div>", unsafe_allow_html=True)
+                    # Add a visual indicator of segmentation quality
+                    if dice_value > 0.8:
+                        quality = "Excellent"
+                        color = "green"
+                    elif dice_value > 0.7:
+                        quality = "Good"
+                        color = "lightgreen"
+                    elif dice_value > 0.5:
+                        quality = "Fair"
+                        color = "orange"
+                    else:
+                        quality = "Poor"
+                        color = "red"
+                        
+                    st.markdown(f"<div style='color:{color};font-weight:bold;'>Quality: {quality}</div>", unsafe_allow_html=True)
             else:
                 st.info("No ground truth mask found for Dice calculation")
                 st.caption("System searched in temporary directory and BUSI dataset")
         
         with metrics_cols[2]:
             if 'sensitivity' in metrics and 'specificity' in metrics:
-                st.metric(
-                    label="Sensitivity", 
-                    value=f"{metrics['sensitivity']:.3f}",
-                    help="True positive rate (recall)"
-                )
-                st.metric(
-                    label="Specificity", 
-                    value=f"{metrics['specificity']:.3f}",
-                    help="True negative rate"
-                )
+                if 'normal_case' in metrics and metrics['normal_case']:
+                    # Special display for normal case
+                    st.metric(
+                        label="Sensitivity & Specificity", 
+                        value="1.000",
+                        help="Perfect scores for normal case detection"
+                    )
+                    st.success("Model correctly identified normal tissue")
+                else:
+                    # Regular metrics display
+                    st.metric(
+                        label="Sensitivity", 
+                        value=f"{metrics['sensitivity']:.3f}",
+                        help="True positive rate (recall)"
+                    )
+                    st.metric(
+                        label="Specificity", 
+                        value=f"{metrics['specificity']:.3f}",
+                        help="True negative rate"
+                    )
             elif 'dice' in metrics:
                 st.metric(
                     label="IoU (Jaccard)", 

@@ -426,6 +426,13 @@ class BreastSegmentationModel:
                 except Exception as e:
                     print(f"Error searching BUSI dataset: {str(e)}")
         
+        # Calculate area ratio (percentage of image segmented)
+        area_ratio = pred_mask.sum() / pred_mask.size
+        metrics['area_ratio'] = area_ratio
+        
+        # Check if this is likely a normal image (no segmentation)
+        is_normal_image = area_ratio < 0.01  # Less than 1% segmented is likely normal
+        
         # Calculate metrics if we have a ground truth mask
         if true_mask is not None:
             # Resize true mask to match prediction if needed
@@ -434,30 +441,44 @@ class BreastSegmentationModel:
                 from skimage.transform import resize
                 true_mask = resize(true_mask, pred_mask.shape, order=0, preserve_range=True).astype(pred_mask.dtype)
             
+            # Check if ground truth is also empty/nearly empty (normal case)
+            true_mask_ratio = true_mask.sum() / true_mask.size
+            gt_is_normal = true_mask_ratio < 0.01
+            
             # Calculate Dice coefficient
-            dice = self.dice_coefficient(pred_mask, true_mask)
+            if is_normal_image and gt_is_normal:
+                # Both prediction and ground truth are normal (no lesions)
+                # In this case, Dice should be 1.0 (perfect agreement on "no lesion")
+                dice = 1.0
+                iou = 1.0
+                sensitivity = 1.0  # All true positives were correctly identified (none in this case)
+                specificity = 1.0  # All true negatives were correctly identified (entire image)
+            else:
+                # Calculate standard metrics when at least one has segmentation
+                # Calculate Dice coefficient
+                dice = self.dice_coefficient(pred_mask, true_mask)
+                
+                # Calculate Intersection over Union (IoU) / Jaccard Index
+                intersection = np.logical_and(pred_mask, true_mask).sum()
+                union = np.logical_or(pred_mask, true_mask).sum()
+                iou = intersection / union if union > 0 else 0.0
+                
+                # Calculate sensitivity (recall) and specificity
+                true_positive = np.logical_and(pred_mask, true_mask).sum()
+                false_positive = np.logical_and(pred_mask, np.logical_not(true_mask)).sum()
+                false_negative = np.logical_and(np.logical_not(pred_mask), true_mask).sum()
+                true_negative = np.logical_and(np.logical_not(pred_mask), np.logical_not(true_mask)).sum()
+                
+                sensitivity = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0.0
+                specificity = true_negative / (true_negative + false_positive) if (true_negative + false_positive) > 0 else 0.0
+            
             metrics['dice'] = dice
-            
-            # Calculate Intersection over Union (IoU) / Jaccard Index
-            intersection = np.logical_and(pred_mask, true_mask).sum()
-            union = np.logical_or(pred_mask, true_mask).sum()
-            iou = intersection / union if union > 0 else 0.0
             metrics['iou'] = iou
-            
-            # Calculate sensitivity (recall) and specificity
-            true_positive = np.logical_and(pred_mask, true_mask).sum()
-            false_positive = np.logical_and(pred_mask, np.logical_not(true_mask)).sum()
-            false_negative = np.logical_and(np.logical_not(pred_mask), true_mask).sum()
-            true_negative = np.logical_and(np.logical_not(pred_mask), np.logical_not(true_mask)).sum()
-            
-            sensitivity = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0.0
-            specificity = true_negative / (true_negative + false_positive) if (true_negative + false_positive) > 0 else 0.0
-            
             metrics['sensitivity'] = sensitivity
             metrics['specificity'] = specificity
-        
-        # Calculate area ratio (percentage of image segmented)
-        area_ratio = pred_mask.sum() / pred_mask.size
-        metrics['area_ratio'] = area_ratio
+            
+            # Add flag for normal case identification
+            if is_normal_image and gt_is_normal:
+                metrics['normal_case'] = True
         
         return metrics

@@ -1,5 +1,5 @@
 import streamlit as st
-
+import matplotlib.pyplot as plt
 import tempfile
 import os
 import sys
@@ -11,6 +11,13 @@ from langchain.memory import ConversationBufferWindowMemory
 
 import calendar_integration
 import medication_reminders
+import med_detection
+import medical_glossary
+
+# Import the breast segmentation module
+from breast_segmentation_module import BreastSegmentationModel
+import io
+from PIL import Image
 
 # Try to import voice processing modules if available
 try:
@@ -184,6 +191,9 @@ if 'pdf_loader_type' not in st.session_state:
 if 'embedding_model' not in st.session_state:
     st.session_state.embedding_model = "all-minilm"
 
+# Initialize breast segmentation model
+segmentation_model = BreastSegmentationModel(model_path="breast_segmentation_model.pth")
+
 # Add response model to the session
 if 'llm_model' not in st.session_state:
     # Set default model based on availability
@@ -195,6 +205,7 @@ if 'llm_model' not in st.session_state:
         st.session_state.llm_model = "phi2-breast-cancer"
     else:
         st.session_state.llm_model = available_models[0] if available_models else "llama3:8b"
+
 
 # Persistent storage functions
 def save_vectorstore(vs, collection_name):
@@ -964,7 +975,7 @@ with st.sidebar:
     st.info("This app was developed to create a RAG specialized in breast cancer, allowing the storage of medical documentation and guidelines and answering questions based on scientific evidence.")
 
 # Main content - Sections: 1. Document Upload, 2. Chat Interface, 3. Calendar 4. Medication
-tab1, tab2, tab3, tab4 = st.tabs(["📄 Upload Documents", "💬 Conversation", "🗓️ Calendar", "💊 Medication"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📄 Upload Documents", "💬 Conversation", "🗓️ Calendar", "💊 Medication", "📚 Medical Glossary", "Breast Ultrasound Segmentation" ])
 
 # Tab 1: Document Upload
 with tab1:
@@ -1356,48 +1367,18 @@ with tab2:
                             # Obtener la última pregunta y respuesta
                             last_user_messages = [msg for msg in st.session_state.messages if msg["role"] == "user"]
                             last_assistant_messages = [msg for msg in st.session_state.messages if msg["role"] == "assistant"]
+
+                            # Definición persistente de last_answer
+                            if last_assistant_messages:
+                                last_answer = last_assistant_messages[-1]["content"]
+                                st.session_state.last_answer = last_answer  # Guardar en session_state para acceso más consistente
+                            else:
+                                last_answer = st.session_state.get("last_answer", "")
                             
                             if last_user_messages and last_assistant_messages:
                                 last_question = last_user_messages[-1]["content"]
                                 last_answer = last_assistant_messages[-1]["content"]
-                                
-                                # Contenedor para botones de acción
-                                action_col1, action_col2 = st.columns(2)
-                                
-                                # Botón para calendario (conservamos el existente)
-                                with action_col1:
-                                    if st.button("🗓️ Schedule consultation with this question", key="calendar_btn"):
-                                        if 'saved_questions' not in st.session_state:
-                                            st.session_state.saved_questions = []
-                                        
-                                        st.session_state.saved_questions.append(last_question)
-                                        st.info("Question saved. Go to the Calendar tab to schedule your appointment.")
-                                
-                                # Nuevo botón para medicación
-                                with action_col2:
-                                    if st.button("💊 Add medication mentioned", key="medication_btn"):
-                                        # Extraer posible medicación mencionada
-                                        # (Esto es muy básico, se podría mejorar con NLP)
-                                        import re
-                                        medication_pattern = r"(\w+)\s+(\d+\s*mg|\d+\s*mcg|\d+\s*ml|\d+\s*g)"
-                                        matches = re.findall(medication_pattern, last_answer)
-                                        
-                                        if matches:
-                                            # Guardar medicaciones encontradas
-                                            if 'detected_medications' not in st.session_state:
-                                                st.session_state.detected_medications = []
-                                            
-                                            for med, dosage in matches:
-                                                st.session_state.detected_medications.append({
-                                                    "name": med,
-                                                    "dosage": dosage
-                                                })
-                                            
-                                            st.info(f"Detected {len(matches)} medications. Go to the Medication tab to set up reminders.")
-                                        else:
-                                            st.warning("No medication detected in the response. You can still add medications manually in the Medication tab.")
-                                            st.success("Response saved. You can view it in the conversation history.") 
-                                            
+
                 except Exception as e:
                     with chat_container:
                         with st.chat_message("assistant"):
@@ -1406,7 +1387,78 @@ with tab2:
         else:
             with chat_container:
                 with st.chat_message("assistant"):
-                    st.warning("No processed documents to answer your question. Please upload and process documents in the 'Upload Documents' tab first.")
+                    st.warning("No processed documents to answer your question. Please upload and process documents in the 'Upload Documents' tab first.")           
+
+# Botones de acción (fuera de los bloques anidados)
+st.subheader("Actions")
+action_col1, action_col2 = st.columns(2)
+
+# Botón para calendario
+with action_col1:
+    if st.button("🗓️ Schedule consultation with this question", key="calendar_btn"):
+        if 'saved_questions' not in st.session_state:
+            st.session_state.saved_questions = []
+        
+        # Asegurarse de que last_question existe
+        if 'last_question' in locals() or 'last_question' in st.session_state:
+            question = locals().get('last_question', st.session_state.get('last_question', ''))
+            st.session_state.saved_questions.append(question)
+            st.info("Question saved. Go to the Calendar tab to schedule your appointment.")
+        else:
+            st.warning("No question available to save")
+
+# Botón para términos médicos
+with action_col2:
+    if st.button("🔍 Explain medical terms", key="terms_btn"):
+        st.write("Processing medical terms...")
+        with st.spinner("Analyzing text for medical terms..."):
+            try:
+                # Obtener last_answer de forma segura
+                if 'last_answer' not in locals() and 'last_answer' not in st.session_state:
+                    last_answer = ""
+                    if last_assistant_messages:
+                        last_answer = last_assistant_messages[-1]["content"]
+                else:
+                    last_answer = locals().get('last_answer', st.session_state.get('last_answer', ''))
+                
+                if not last_answer:
+                    st.warning("No assistant response to analyze")
+                else:
+                    detector = med_detection.get_medical_terms_detector()
+                    detected_terms = detector.detect_medical_terms(last_answer)
+                    
+                    if detected_terms:
+                        # Guardar automáticamente los términos
+                        if 'saved_medical_terms' not in st.session_state:
+                            st.session_state.saved_medical_terms = []
+                        
+                        # Añadir solo términos nuevos
+                        terms_added = 0
+                        current_terms = [t['term'] for t in st.session_state.saved_medical_terms]
+                        for term in detected_terms:
+                            if term['term'] not in current_terms:
+                                st.session_state.saved_medical_terms.append(term)
+                                terms_added += 1
+                        
+                        # Mostrar mensaje de éxito
+                        st.success(f"Found {len(detected_terms)} medical terms. {terms_added} new terms saved to glossary.")
+                        
+                        # Mostrar los términos
+                        with st.expander(f"📚 Medical terms in this response:", expanded=True):
+                            st.markdown(
+                                detector.format_results_for_display(detected_terms),
+                                unsafe_allow_html=True
+                            )
+                            
+                            # Añadir link a la pestaña del glosario
+                            st.info("✅ Terms are automatically saved. View all terms in the Medical Glossary tab.")
+                    else:
+                        st.info("No medical terms detected in this response.")
+            except Exception as e:
+                st.error(f"Error analyzing medical terms: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc(), language="python")
+
 
 with tab3:
     # show saved questions from the conversation
@@ -1425,6 +1477,43 @@ with tab4:
     # Call to the main function of the medication reminders module
     medication_reminders.medication_reminders_ui()
 
+with tab5:  # Call to the medical glossary module
+    medical_glossary.medical_glossary_ui()
+
+with tab6:
+    st.header("Breast Ultrasound Segmentation")
+    st.write("Upload an ultrasound image to segment breast tissue and visualize the result.")
+
+    # File uploader
+    uploaded_image = st.file_uploader(
+        "Upload your breast ultrasound image",
+        type=["png", "jpg", "jpeg"]
+    )
+
+    if uploaded_image is not None:
+        # Load the image
+        image = Image.open(uploaded_image).convert('L')  # Convert to grayscale
+
+        st.subheader("Original Ultrasound Image")
+        st.image(image, caption="Uploaded Ultrasound", use_column_width=True)
+
+        # Segmentation Prediction
+        with st.spinner('Running segmentation model...'):
+            mask, prob_map = segmentation_model.predict(image)
+            overlay_image = segmentation_model.overlay_mask(image, mask)
+
+        # Show overlay result
+        st.subheader("Segmentation Overlay")
+        st.image(overlay_image, caption="Overlay with Segmentation Mask", use_column_width=True)
+
+        # Show probability map
+        st.subheader("Probability Map")
+        fig, ax = plt.subplots()
+        ax.imshow(prob_map, cmap='viridis')
+        ax.axis('off')
+        st.pyplot(fig)
+    else:
+        st.info("Please upload an ultrasound image to begin segmentation.")
 
 # Debug information
 with st.expander("Debug information", expanded=False):

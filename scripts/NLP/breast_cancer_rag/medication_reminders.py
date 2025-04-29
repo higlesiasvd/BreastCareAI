@@ -7,6 +7,8 @@ import json
 from dateutil.rrule import rrulestr
 from dateutil.rrule import DAILY, WEEKLY, MO, TU, WE, TH, FR, SA, SU
 
+
+
 # Constants for medication frequency
 FREQUENCIES = {
     "Once daily": {"times": 1, "interval": 1, "unit": "day"},
@@ -213,12 +215,19 @@ def medication_reminders_ui():
     with tab1:
         st.subheader("Add New Medication")
         
+
         with st.form("new_medication_form"):
             col1, col2 = st.columns(2)
             
             with col1:
-                med_name = st.text_input("Medication Name")
-                med_dosage = st.text_input("Dosage (e.g., 10mg)")
+                default_name = ""
+                default_dosage = ""
+                if 'prefill_medication' in st.session_state:
+                    default_name = st.session_state.prefill_medication.get('name', '')
+                    default_dosage = st.session_state.prefill_medication.get('dosage', '')
+                
+                med_name = st.text_input("Medication Name", value=default_name)
+                med_dosage = st.text_input("Dosage (e.g., 10mg)", value=default_dosage)
                 
                 med_frequency = st.selectbox(
                     "Frequency",

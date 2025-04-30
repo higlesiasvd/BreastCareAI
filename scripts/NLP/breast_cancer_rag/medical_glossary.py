@@ -1,4 +1,13 @@
-# medical_glossary.py
+"""
+medical_glossary.py
+
+Streamlit UI module for managing, viewing, and exporting a glossary of medical terms.
+This script allows users to:
+- Load and save medical terms with explanations and categories.
+- Interactively browse, filter, and remove saved glossary entries.
+- Export the glossary in various formats (Markdown, CSV, PDF, JSON).
+Used primarily in the Breast Cancer RAG app to support user understanding of medical language.
+"""
 
 import streamlit as st
 import pandas as pd

@@ -1,3 +1,21 @@
+"""
+Google Calendar Integration for Breast Cancer Support App
+
+This module provides a Streamlit-based interface for managing medical appointments
+and integrating them directly with Google Calendar. It is designed to assist breast cancer
+patients by helping them organize upcoming consultations and prepare personalized questions 
+based on their clinical profile or general concerns.
+
+Features:
+- OAuth2 authentication with Google Calendar
+- Creation of calendar events with customizable details (doctor, time, location)
+- Option to generate personalized medical questions using an LLM (e.g., LLaMA)
+- Predefined question templates by topic (diagnosis, treatment, post-treatment, quality of life)
+- Persistent storage and reuse of questions saved during prior chatbot interactions
+
+Intended for interactive clinical decision-support tools or patient-centered health assistant applications.
+"""
+
 import streamlit as st
 import datetime
 import os.path

@@ -1,3 +1,20 @@
+"""
+Medication Reminder System – Google Calendar Integration
+
+This module provides a complete interface in Streamlit for managing medication schedules 
+and automatically generating Google Calendar reminders for breast cancer patients. 
+
+Core Features:
+- Add, view, edit, and delete medications with customizable dosage, frequency, and time slots.
+- Automatically creates recurring Google Calendar events for each medication intake time.
+- Stores user medication data locally in a JSON file.
+- Displays an upcoming 7-day medication schedule in a clear, interactive table.
+- Includes user settings for notification types and event customization.
+
+The goal is to enhance treatment adherence and support patients in managing complex 
+medication regimens through seamless integration with their digital calendar.
+"""
+
 import streamlit as st
 import datetime
 import calendar_integration

@@ -1,3 +1,16 @@
+"""
+Script for collecting and downloading breast cancer guidelines and information resources
+from authoritative sources (e.g., PubMed, Google Scholar, guideline organizations).
+
+It identifies relevant documents (PDFs) based on keywords and indicators, checks validity,
+downloads them, and saves metadata optimized for use in RAG (Retrieval-Augmented Generation) systems.
+
+Output:
+- Downloaded PDF documents organized by type.
+- Full metadata (guideline_metadata.json).
+- RAG-optimized metadata (rag_metadata.json).
+- A README file with usage instructions.
+"""
 import requests
 from bs4 import BeautifulSoup
 import time

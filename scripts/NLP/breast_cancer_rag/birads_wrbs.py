@@ -1,3 +1,20 @@
+"""
+BI-RADS Weighted Rule-Based Scoring (WRBS) Classifier
+
+This module defines a class for classifying breast ultrasound lesions based on 
+weighted scoring of features, following the BI-RADS (Breast Imaging Reporting 
+and Data System) guidelines. It implements both a weighted scoring algorithm 
+and a fuzzy logic alternative to better capture diagnostic uncertainty.
+
+Key functionalities:
+- Extract lesion features from image segmentation masks.
+- Evaluate features using a weighted scoring model or fuzzy inference.
+- Generate human-readable clinical reports with BI-RADS classification.
+- Provide metadata for interpretability and confidence estimation.
+
+This system is designed to support radiological decision-making and 
+reduce false positives in breast cancer screening.
+"""
 import numpy as np
 from skimage import measure, filters, morphology
 import time

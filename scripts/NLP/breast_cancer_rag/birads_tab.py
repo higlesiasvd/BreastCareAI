@@ -2,7 +2,7 @@
 BI-RADS Classification Tab for Breast Ultrasound Analysis Application
 
 This module defines a Streamlit tab for BI-RADS classification using
-Constraint Satisfaction Problems (CSP).
+Weighted Rule-Based System (WRBS).
 
 Part of the Intelligent Systems course project.
 """
@@ -15,20 +15,21 @@ import tempfile
 import io
 import os
 
-from birads_csp import BIRADSClassifierCSP
+from birads_wrbs import BIRADSClassifierWRBS
 
 
-def add_birads_csp_tab():
+def add_birads_wrbs_tab():
     """
-    Adds a BI-RADS CSP classification tab to the Streamlit application.
+    Adds a BI-RADS classification tab to the Streamlit application using
+    Weighted Rule-Based System.
     
     This tab allows users to upload ultrasound images, run segmentation,
-    and get a BI-RADS classification using CSP algorithms.
+    and get a BI-RADS classification using weighted scoring algorithms.
     """
-    st.title("🏥 BI-RADS Classification using CSP")
+    st.title("🏥 BI-RADS Classification using Weighted Rule-Based System")
     
     st.markdown("""
-    This module uses Constraint Satisfaction Problems (CSP) to classify breast ultrasound lesions 
+    This module uses a Weighted Rule-Based System (WRBS) to classify breast ultrasound lesions 
     into appropriate BI-RADS categories. The classification is based on features extracted from 
     the segmentation results.
     
@@ -38,26 +39,24 @@ def add_birads_csp_tab():
     (highly suspicious for malignancy).
     """)
     
-    with st.expander("How CSP is used for BI-RADS Classification", expanded=False):
+    with st.expander("How Weighted Rule-Based System is used for BI-RADS Classification", expanded=False):
         st.markdown("""
-        ### Constraint Satisfaction Problem (CSP) for BI-RADS Classification
+        ### Weighted Rule-Based System (WRBS) for BI-RADS Classification
         
-        Our approach represents BI-RADS classification as a CSP where:
+        Our approach represents BI-RADS classification as a weighted scoring system where:
         
         - **Variables**: Lesion features such as shape, margin, orientation, etc.
-        - **Domains**: Possible values for each feature (e.g., shape can be regular, irregular, etc.)
-        - **Constraints**: Medical criteria that define each BI-RADS category
+        - **Feature Scores**: Values that indicate whether a feature favors benignity (-) or malignancy (+)
+        - **Feature Weights**: Importance of each feature based on medical literature (e.g., margin 25%, shape 20%)
         
-        The system extracts features automatically from the segmentation and solves the CSP to find 
+        The system extracts features automatically from the segmentation and calculates a weighted score to find 
         the most appropriate BI-RADS category.
         
-        We implement three different CSP algorithms:
-        1. **Standard CSP**: Directly evaluates constraint satisfaction
-        2. **Backtracking CSP**: Uses backtracking to fill in missing values
-        3. **Fuzzy CSP**: Uses fuzzy logic to handle uncertainty in feature values
+        We implement two different algorithms:
+        1. **Weighted Scoring**: Direct calculation of weighted feature scores
+        2. **Fuzzy Logic Scoring**: Uses fuzzy logic to handle uncertainty in feature values
         
-        This approach aligns with topics from Unit II (Problem Solving) and specifically section 2.3 
-        (Constraint Satisfaction Problems) of the Intelligent Systems course.
+        This approach aligns with clinical guidelines and provides a transparent methodology for classification.
         """)
     
     # File upload section
@@ -82,11 +81,11 @@ def add_birads_csp_tab():
             st.image("example_images/normal_example.png", caption="Example: Normal tissue", width=200)
             
         st.markdown("""
-        Upload your own ultrasound image to get a BI-RADS classification using CSP algorithms.
+        Upload your own ultrasound image to get a BI-RADS classification using weighted scoring algorithms.
         The system will:
         1. Segment the image to identify lesions
         2. Extract features from the segmentation
-        3. Apply CSP algorithms to determine the appropriate BI-RADS category
+        3. Apply weighted scoring algorithms to determine the appropriate BI-RADS category
         4. Generate a detailed report with clinical recommendations
         """)
         return
@@ -117,35 +116,34 @@ def add_birads_csp_tab():
         with col2:
             st.image(overlay_image, caption="Segmented Image", use_column_width=True)
     
-    # CSP algorithm selection
-    st.subheader("CSP Algorithm Selection")
-    csp_algorithm = st.radio(
-        "Select CSP algorithm to use:",
-        ["Standard CSP", "Backtracking CSP", "Fuzzy CSP"],
+    # Algorithm selection
+    st.subheader("Algorithm Selection")
+    wrbs_algorithm = st.radio(
+        "Select algorithm to use:",
+        ["Weighted Scoring", "Fuzzy Logic Scoring"],
         horizontal=True
     )
     
     # Map radio button selection to algorithm parameter
     algorithm_map = {
-        "Standard CSP": "standard",
-        "Backtracking CSP": "backtracking",
-        "Fuzzy CSP": "fuzzy"
+        "Weighted Scoring": "weighted",
+        "Fuzzy Logic Scoring": "fuzzy"
     }
     
     # Run BI-RADS classification
     with st.spinner("Analyzing features and determining BI-RADS category..."):
         # Initialize the classifier
-        birads_classifier = BIRADSClassifierCSP()
+        birads_classifier = BIRADSClassifierWRBS()
         
         # Extract features from segmentation
         birads_classifier.extract_features_from_segmentation(np.array(image), mask)
         
         # Use selected algorithm
-        selected_algorithm = algorithm_map[csp_algorithm]
-        birads_category, confidence, detailed_results = birads_classifier.solve_csp(algorithm=selected_algorithm)
+        selected_algorithm = algorithm_map[wrbs_algorithm]
+        birads_category, confidence, total_score, detailed_results = birads_classifier.calculate_birads_score(algorithm=selected_algorithm)
         
         # Generate report
-        report = birads_classifier.generate_report(birads_category, confidence, detailed_results)
+        report = birads_classifier.generate_report(birads_category, confidence, total_score, detailed_results)
     
     # Display BI-RADS results
     st.header("BI-RADS Classification Results")
@@ -200,8 +198,8 @@ def add_birads_csp_tab():
             col = feature_col1 if i % 2 == 0 else feature_col2
             col.metric(feature_names.get(feature, feature), value)
     
-    # Display constraint satisfaction results
-    st.subheader("Constraint Satisfaction Results")
+    # Display weighted scoring results
+    st.subheader("Weighted Scoring Results")
     
     # Convert results to format suitable for chart
     chart_data = {k: v for k, v in detailed_results.items()}
@@ -224,8 +222,8 @@ def add_birads_csp_tab():
                 f'{height:.2f}', ha='center', va='bottom')
     
     ax.set_ylim(0, 1.1)
-    ax.set_ylabel('Satisfaction Level')
-    ax.set_title('BI-RADS Constraint Satisfaction')
+    ax.set_ylabel('Category Score')
+    ax.set_title('BI-RADS Category Scores')
     plt.tight_layout()
     
     # Display chart

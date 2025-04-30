@@ -1,0 +1,60 @@
+[
+  {
+    "url": "https://www.nccn.org/patients/guidelines/content/PDF/breast-invasive-patient.pdf",
+    "title": "NCCN Guidelines for Patients: Breast Cancer - Invasive",
+    "source": "NCCN",
+    "resource_type": "Patient Guidelines",
+    "audience": "Patients",
+    "priority": 5,
+    "filename": "Patient_Guidelines_NCCN_NCCN-Guidelines-for-Patients_-Breast-Cancer---Invasive.pdf",
+    "download_date": "2025-04-16",
+    "file_path": "breast_cancer_guidelines/Patient_Guidelines_NCCN_NCCN-Guidelines-for-Patients_-Breast-Cancer---Invasive.pdf",
+    "rag_category": "Patient Guidelines",
+    "reading_level": "General Public",
+    "summary": "A patient guidelines about breast cancer from NCCN"
+  },
+  {
+    "url": "https://www.esmo.org/content/download/117593/2061518/1/ESMO-Patient-Guide-Survivorship.pdf",
+    "title": "ESMO Patient Guide on Cancer Survivorship",
+    "source": "ESMO",
+    "resource_type": "Patient Guidelines",
+    "audience": "Patients",
+    "priority": 5,
+    "filename": "Patient_Guidelines_ESMO_ESMO-Patient-Guide-on-Cancer-Survivorship.pdf",
+    "download_date": "2025-04-16",
+    "file_path": "breast_cancer_guidelines/Patient_Guidelines_ESMO_ESMO-Patient-Guide-on-Cancer-Survivorship.pdf",
+    "rag_category": "Patient Guidelines",
+    "reading_level": "General Public",
+    "summary": "A patient guidelines about breast cancer from ESMO"
+  },
+  {
+    "url": "https://www.cancer.org/content/dam/cancer-org/cancer-control/en/booklets-flyers/after-a-breast-cancer-diagnosis.pdf",
+    "title": "After a Breast Cancer Diagnosis\n\n\n\n\nIf you’ve just been diagnosed with breast cancer, this short guide can help you know what to expect.",
+    "source": "American Cancer Society",
+    "language": "en",
+    "resource_type": "Patient Information",
+    "audience": "Patients",
+    "priority": 4,
+    "filename": "Patient_Information_American_Cancer_Society_After-a-Breast-Cancer-Diagnosis-If-you_ve-just-been-diagnosed-with-breast-cancer_-this-short-guide-c.pdf",
+    "download_date": "2025-04-16",
+    "file_path": "breast_cancer_guidelines/Patient_Information_American_Cancer_Society_After-a-Breast-Cancer-Diagnosis-If-you_ve-just-been-diagnosed-with-breast-cancer_-this-short-guide-c.pdf",
+    "rag_category": "Patient Information",
+    "reading_level": "General Public",
+    "summary": "A patient information about breast cancer from American Cancer Society"
+  },
+  {
+    "url": "https://www.cancer.org/content/dam/cancer-org/cancer-control/en/booklets-flyers/breast-cancer-fact-sheet-patient-version.pdf",
+    "title": "Breast Cancer Fact Sheet for Patients and Caregivers\n\n\n\n\nGet the facts about breast cancer, including risk factors, prevention, early detection, treatment, and more.",
+    "source": "American Cancer Society",
+    "language": "en",
+    "resource_type": "Patient Information",
+    "audience": "Patients",
+    "priority": 4,
+    "filename": "Patient_Information_American_Cancer_Society_Breast-Cancer-Fact-Sheet-for-Patients-and-Caregivers-Get-the-facts-about-breast-cancer_-including-ri.pdf",
+    "download_date": "2025-04-16",
+    "file_path": "breast_cancer_guidelines/Patient_Information_American_Cancer_Society_Breast-Cancer-Fact-Sheet-for-Patients-and-Caregivers-Get-the-facts-about-breast-cancer_-including-ri.pdf",
+    "rag_category": "Patient Information",
+    "reading_level": "General Public",
+    "summary": "A patient information about breast cancer from American Cancer Society"
+  }
+]

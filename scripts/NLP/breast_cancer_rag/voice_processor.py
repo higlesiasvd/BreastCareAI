@@ -1,3 +1,23 @@
+"""
+Advanced Voice Processing Module
+
+This module provides an integrated voice interface using automatic speech recognition (ASR) and text-to-speech (TTS).
+It enables users to record voice input, transcribe it using OpenAI's Whisper models, and optionally generate spoken
+responses using Google Text-to-Speech (gTTS). The system is optimized for cross-platform support (CPU, CUDA, or Apple Silicon),
+and includes utilities for checking model availability, managing sidebar controls, and integrating voice features 
+into interactive Streamlit chat apps.
+
+Main features:
+- Whisper-based speech-to-text transcription with GPU/MPS acceleration
+- Google TTS-based text-to-speech synthesis
+- Modular UI components for adding voice to chatbots and assistants
+- Real-time audio recording from microphone
+- Clean fallback and error handling for missing libraries or hardware
+
+Intended for intelligent health assistants, educational bots, or interactive voice-enabled tools.
+"""
+
+
 import streamlit as st
 import numpy as np
 import torch

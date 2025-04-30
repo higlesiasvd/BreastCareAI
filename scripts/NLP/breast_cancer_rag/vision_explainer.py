@@ -55,14 +55,16 @@ class VisionExplainer:
             print(f"⚠️ Error checking Ollama model: {str(e)}")
             print("Make sure the Ollama service is running and accessible.")
     
-    def _create_combined_image(self, original_image, segmented_image, metrics):
+    def _create_combined_image_with_features(self, original_image, segmented_image, metrics, true_mask=None, attention_map=None):
         """
-        Create a combined image with original, segmentation, and metrics
+        Create a combined image with original, segmentation, ground truth mask, attention map, and metrics
         
         Args:
             original_image (PIL.Image): Original ultrasound image
             segmented_image (PIL.Image): Segmented overlay image
             metrics (dict): Dictionary of segmentation metrics
+            true_mask (PIL.Image/np.ndarray, optional): Ground truth mask if available
+            attention_map (PIL.Image, optional): Attention visualization (Grad-CAM)
             
         Returns:
             PIL.Image: Combined image for explanation
@@ -70,22 +72,93 @@ class VisionExplainer:
         # Resize images to be the same height
         height = 400
         
+        # Calculate how many images we have and their space requirements
+        num_images = 2  # Original and segmentation are always present
+        if true_mask is not None:
+            num_images += 1
+        if attention_map is not None:
+            num_images += 1
+            
         # Calculate widths while maintaining aspect ratio
         width1 = int(original_image.width * height / original_image.height)
-        width2 = int(segmented_image.width * height / segmented_image.height)
         
-        # Resize images
-        original_resized = original_image.resize((width1, height))
-        segmented_resized = segmented_image.resize((width2, height))
-        
-        # Create new image that fits both side by side plus a metrics panel
+        # Create new image with appropriate width
         metrics_width = 400
-        new_width = width1 + width2 + metrics_width
-        combined = Image.new('RGB', (new_width, height), (255, 255, 255))
+        image_width = width1  # Base width for each image
+        total_width = (image_width * num_images) + metrics_width
         
-        # Paste the images
+        combined = Image.new('RGB', (total_width, height), (255, 255, 255))
+        
+        # Resize and paste original image
+        original_resized = original_image.resize((image_width, height))
         combined.paste(original_resized, (0, 0))
-        combined.paste(segmented_resized, (width1, 0))
+        
+        # Resize and paste segmented image
+        segmented_resized = segmented_image.resize((image_width, height))
+        combined.paste(segmented_resized, (image_width, 0))
+        
+        current_position = image_width * 2
+        
+        # Paste true mask if available
+        if true_mask is not None:
+            # Ensure mask is a PIL Image
+            if not isinstance(true_mask, Image.Image):
+                # If it's a numpy array, convert to PIL Image
+                if isinstance(true_mask, np.ndarray):
+                    # If binary mask, convert to RGB with color
+                    if true_mask.ndim == 2:
+                        # Create colored mask (blue for ground truth)
+                        h, w = true_mask.shape
+                        colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
+                        colored_mask[true_mask > 0] = [0, 0, 255]  # Blue for ground truth
+                        true_mask_img = Image.fromarray(colored_mask)
+                    else:
+                        true_mask_img = Image.fromarray(true_mask)
+                else:
+                    # If not a supported type, create a placeholder
+                    true_mask_img = Image.new('RGB', (width1, height), (200, 200, 200))
+            else:
+                true_mask_img = true_mask
+            
+            # Resize mask to match original image
+            true_mask_resized = true_mask_img.resize((image_width, height))
+            
+            # Paste into the combined image
+            combined.paste(true_mask_resized, (current_position, 0))
+            current_position += image_width
+        
+        # Paste attention map if available
+        if attention_map is not None:
+            # Convert to PIL Image if it's not already
+            if not isinstance(attention_map, Image.Image):
+                # Handle numpy array case
+                if isinstance(attention_map, np.ndarray):
+                    if attention_map.ndim == 2:
+                        # Single channel attention map
+                        import matplotlib.pyplot as plt
+                        import matplotlib
+                        matplotlib.use("Agg")  # Non-interactive backend
+                        
+                        # Apply colormap
+                        cm = plt.get_cmap('jet')
+                        colored_attention = cm(attention_map)
+                        colored_attention = (colored_attention[:, :, :3] * 255).astype(np.uint8)
+                        attention_img = Image.fromarray(colored_attention)
+                    else:
+                        # Already colored
+                        attention_img = Image.fromarray(attention_map)
+                else:
+                    # Use as is
+                    attention_img = attention_map
+            else:
+                attention_img = attention_map
+                
+            # Resize attention map
+            attention_resized = attention_img.resize((image_width, height))
+            
+            # Paste into combined image
+            combined.paste(attention_resized, (current_position, 0))
+            current_position += image_width
         
         # Create a drawing context
         draw = ImageDraw.Draw(combined)
@@ -98,7 +171,7 @@ class VisionExplainer:
             font = ImageFont.load_default()
         
         # Add metrics text
-        x_offset = width1 + width2 + 20
+        x_offset = current_position + 20
         y_offset = 20
         line_height = 25
         
@@ -150,36 +223,77 @@ class VisionExplainer:
             draw.text((x_offset, y_offset), f"Quality: {quality}", fill=color, font=font)
             y_offset += line_height
         
+        # Add explainability metrics if available
+        if 'max_importance' in metrics:
+            y_offset += line_height/2
+            draw.text((x_offset, y_offset), "EXPLAINABILITY METRICS", fill=(0, 0, 0), font=font)
+            y_offset += line_height
+            
+            # Boundary focus
+            if 'boundary_focus' in metrics:
+                boundary_focus = metrics['boundary_focus'] * 100
+                draw.text((x_offset, y_offset), f"Boundary Focus: {boundary_focus:.1f}%", fill=(0, 0, 0), font=font)
+                y_offset += line_height
+            
+            # Contiguity
+            if 'importance_contiguity' in metrics:
+                contiguity = metrics['importance_contiguity']
+                draw.text((x_offset, y_offset), f"Contiguity: {contiguity:.3f}", fill=(0, 0, 0), font=font)
+                y_offset += line_height
+            
+            # Entropy
+            if 'normalized_entropy' in metrics:
+                entropy = metrics['normalized_entropy']
+                draw.text((x_offset, y_offset), f"Attention Entropy: {entropy:.3f}", fill=(0, 0, 0), font=font)
+                y_offset += line_height
+        
         # Add a note for normal cases
         if 'normal_case' in metrics and metrics['normal_case']:
             y_offset += line_height/2
             draw.text((x_offset, y_offset), 
-                      "Note: Both prediction and ground truth", fill=(0, 0, 0), font=font)
+                    "Note: Both prediction and ground truth", fill=(0, 0, 0), font=font)
             y_offset += line_height
             draw.text((x_offset, y_offset), 
-                      "show no lesions (normal case)", fill=(0, 0, 0), font=font)
+                    "show no lesions (normal case)", fill=(0, 0, 0), font=font)
         
         # Add titles to the images
-        draw.text((width1//2 - 60, 5), "Original Ultrasound", fill=(255, 255, 255), font=font)
-        draw.text((width1 + width2//2 - 80, 5), "Segmentation Overlay", fill=(255, 255, 255), font=font)
+        draw.text((image_width//2 - 60, 5), "Original Ultrasound", fill=(255, 255, 255), font=font)
+        draw.text((image_width + image_width//2 - 80, 5), "AI Segmentation", fill=(255, 255, 255), font=font)
+        
+        current_title_pos = image_width * 2
+        
+        if true_mask is not None:
+            draw.text((current_title_pos + image_width//2 - 80, 5), "Ground Truth Mask", fill=(255, 255, 255), font=font)
+            current_title_pos += image_width
+        
+        if attention_map is not None:
+            draw.text((current_title_pos + image_width//2 - 65, 5), "Model Attention", fill=(255, 255, 255), font=font)
         
         return combined
 
-    def explain_segmentation(self, original_image, segmented_image, metrics, prompt_template=None):
+    def explain_segmentation(self, original_image, segmented_image, metrics, true_mask=None, attention_map=None, prompt_template=None):
         """
         Generate an explanation of the segmentation results using Ollama
         
         Args:
             original_image (PIL.Image): Original ultrasound image
             segmented_image (PIL.Image): Segmented overlay image
-            metrics (dict): Dictionary of segmentation metrics
+            metrics (dict): Dictionary of segmentation metrics including explainability metrics
+            true_mask (PIL.Image/np.ndarray, optional): Ground truth mask if available
+            attention_map (PIL.Image, optional): Attention visualization (Grad-CAM)
             prompt_template (str, optional): Custom prompt template
             
         Returns:
             str: AI-generated explanation of the segmentation results
         """
         # Create combined image for explanation
-        combined_image = self._create_combined_image(original_image, segmented_image, metrics)
+        combined_image = self._create_combined_image_with_features(
+            original_image, 
+            segmented_image, 
+            metrics, 
+            true_mask=true_mask,
+            attention_map=attention_map
+        )
         
         # Save the combined image to a temporary file for Streamlit to display later
         temp_img_path = os.path.join(tempfile.gettempdir(), "combined_segmentation.png")
@@ -194,20 +308,51 @@ class VisionExplainer:
         if prompt_template is None:
             is_normal = metrics.get('area_ratio', 0) * 100 < 1.0
             has_ground_truth = 'dice' in metrics
+            has_mask = true_mask is not None
+            has_explainability = 'max_importance' in metrics
             
             prompt_template = """
-            Please analyze this breast ultrasound image and segmentation results:
+            Please analyze this breast ultrasound image and segmentation results as if you were a radiologist writing a report for a patient:
             - On the left is the original ultrasound image
-            - In the middle is the AI-generated segmentation overlay (red areas show detected tissue of interest)
+            - Next is the AI-generated segmentation overlay (red areas show detected tissue of interest)
+            """
+            
+            if has_mask:
+                prompt_template += """
+                - Also included is a ground truth mask for comparison (blue areas)
+                """
+                
+            if attention_map is not None:
+                prompt_template += """
+                - The model attention map shows where the AI focused (heatmap)
+                """
+                
+            prompt_template += """
             - On the right are the segmentation metrics
             
-            Provide a comprehensive yet concise explanation including:
-            1. What do you see in the ultrasound image?
-            2. How good is the segmentation quality?
-            3. What do the metrics tell us?
+            Analyze all images collectively, not individually. Consider the relationship between the original, 
+            the AI segmentation, and other available visualizations.
             
-            Keep your explanation medically accurate but accessible to non-experts.
-            Avoid making specific diagnostic claims or suggesting treatments.
+            Provide a comprehensive yet accessible explanation in the style of a radiological report but written 
+            for a general audience without medical training. Your report should include:
+            
+            1. A description of what is visible in the ultrasound image
+            2. An assessment of the AI segmentation quality and what it reveals
+            3. An explanation of the metrics and what they mean in this specific case
+            """
+            
+            if has_explainability:
+                prompt_template += """
+            4. An interpretation of the model's attention patterns and explainability metrics
+                - Boundary Focus: Whether the model focuses on edges (high %) or regions (low %)
+                - Contiguity: How concentrated the model's attention is (higher = more focused)
+                - Attention Entropy: How evenly distributed the attention is (higher = more dispersed)
+            """
+                
+            prompt_template += """
+            5. A conclusion about what this analysis suggests (but avoid making specific diagnostic claims)
+            
+            Your explanation should be structured like a medical report but use language that a person without medical knowledge can understand.
             """
             
             # Add specific guidance based on metrics
@@ -221,28 +366,26 @@ class VisionExplainer:
                 prompt_template += f"""
                 The Dice coefficient for this segmentation is {metrics['dice']:.3f}.
                 Explain what this means about the quality of the segmentation
-                and how well the model detected areas of interest.
+                and how well the model detected areas of interest compared to the reference.
                 """
         
         # System prompt to guide the model's responses
         system_prompt = """
-        You are a medical imaging expert specialized in breast ultrasound analysis. You are examining 
+        You are a radiologist specialized in breast ultrasound analysis. You are examining 
         ultrasound images and their AI-generated segmentation results.
         
-        IMPORTANT INSTRUCTIONS ABOUT YOUR RESPONSE FORMAT:
-        - Use a natural, conversational tone - DO NOT use numbered steps or bullet points
-        - Write as if you were explaining to a medical student or patient
-        - Never use phrases like "Step 1:", "Step 2:", etc.
-        - Keep paragraphs short and use a flowing narrative style
-        - Explain technical concepts in simple but precise language
-        - Use an empathetic, reassuring tone that conveys expertise
+        Your task is to provide a radiological-style report written in accessible language for a general audience, only with the following structure, nothing more.
         
-        Content to include (but not in a structured format):
-        - Brief description of what you observe in the ultrasound image
-        - Assessment of the segmentation quality in relation to the original image
-        - Explanation of what the metrics mean in this specific case
-        - For normal cases, explain why no significant segmentation is appropriate
-        - For abnormal cases, describe the segmentation pattern objectively
+        IMPORTANT INSTRUCTIONS ABOUT YOUR RESPONSE FORMAT:
+        - Structure your report as a medical radiologist would, with clear sections but without the Patient Information, clinical history, or other unnecessary details.
+        - Begin with a "FINDINGS" section that objectively describes what is visible
+        - Include a "TECHNICAL ASSESSMENT" section that evaluates the quality of the AI segmentation
+        - Add an "INTERPRETATION" section that explains what the findings might indicate
+        - If explainability metrics are provided, include an "AI BEHAVIOR ANALYSIS" section discussing how the model arrived at its results
+        - End with an "IMPRESSION" section that summarizes the key points
+        - Use medical terms when necessary but always explain them in parentheses
+        - Be precise but accessible - explain concepts as you would to a patient
+        - Maintain a professional and confident yet compassionate tone
         
         Remember that your analysis is for educational purposes only, not for diagnosis.
         """
@@ -278,9 +421,9 @@ class VisionExplainer:
             Error generating explanation: {str(e)}
             
             Please check:
-            1. Ollama service is running
-            2. The model '{self.model_name}' is installed
-            3. You have the latest version of the Ollama Python library
+            1. That the Ollama service is running
+            2. That the model '{self.model_name}' is installed
+            3. That you have the latest version of the Ollama Python library
             
             You can install/update with: pip install -U ollama
             """

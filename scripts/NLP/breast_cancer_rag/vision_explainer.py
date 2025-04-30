@@ -271,16 +271,19 @@ class VisionExplainer:
         
         return combined
 
-    def explain_segmentation(self, original_image, segmented_image, metrics, true_mask=None, attention_map=None, prompt_template=None):
+    def explain_segmentation(self, original_image, segmented_image, metrics, true_mask=None, attention_map=None, 
+                           birads_category=None, birads_confidence=None, prompt_template=None):
         """
         Generate an explanation of the segmentation results using Ollama
         
         Args:
             original_image (PIL.Image): Original ultrasound image
             segmented_image (PIL.Image): Segmented overlay image
-            metrics (dict): Dictionary of segmentation metrics including explainability metrics
+            metrics (dict): Dictionary of segmentation metrics
             true_mask (PIL.Image/np.ndarray, optional): Ground truth mask if available
             attention_map (PIL.Image, optional): Attention visualization (Grad-CAM)
+            birads_category (str, optional): BI-RADS classification result
+            birads_confidence (float, optional): Confidence in BI-RADS classification
             prompt_template (str, optional): Custom prompt template
             
         Returns:
@@ -304,12 +307,28 @@ class VisionExplainer:
         combined_image.save(img_buffer, format='PNG')
         img_bytes = img_buffer.getvalue()
         
+        # Create a dictionary of BI-RADS categories with their correct descriptions and risk levels
+        birads_definitions = {
+            'BIRADS0': "BI-RADS 0: Incomplete - Need additional imaging. This is not a final assessment.",
+            'BIRADS1': "BI-RADS 1: Negative. No abnormalities found. Risk of malignancy is essentially 0%.",
+            'BIRADS2': "BI-RADS 2: Benign finding. Definitely benign lesions with 0% risk of malignancy.",
+            'BIRADS3': "BI-RADS 3: Probably benign. Less than 2% risk of malignancy. Typically requires follow-up.",
+            'BIRADS4A': "BI-RADS 4A: Low suspicion for malignancy. Risk of malignancy is 2-10%. Requires biopsy.",
+            'BIRADS4B': "BI-RADS 4B: Moderate suspicion for malignancy. Risk of malignancy is 10-50%. Requires biopsy.",
+            'BIRADS4C': "BI-RADS 4C: High suspicion for malignancy. Risk of malignancy is 50-95%. Requires biopsy.",
+            'BIRADS5': "BI-RADS 5: Highly suggestive of malignancy. Risk of malignancy is >95%. Requires biopsy."
+        }
+        
+        # Get the correct description for the classified BI-RADS category
+        birads_description = birads_definitions.get(birads_category, f"Unknown BI-RADS category: {birads_category}")
+        
         # Default prompt if none provided
         if prompt_template is None:
             is_normal = metrics.get('area_ratio', 0) * 100 < 1.0
             has_ground_truth = 'dice' in metrics
             has_mask = true_mask is not None
             has_explainability = 'max_importance' in metrics
+            has_birads = birads_category is not None
             
             prompt_template = """
             Please analyze this breast ultrasound image and segmentation results as if you were a radiologist writing a report for a patient:
@@ -332,6 +351,30 @@ class VisionExplainer:
             
             Analyze all images collectively, not individually. Consider the relationship between the original, 
             the AI segmentation, and other available visualizations.
+            """
+            
+            if has_birads:
+                prompt_template += f"""
+            
+            This image has been classified as {birads_description} with a confidence of {birads_confidence:.2f}.
+            
+            IMPORTANT: The BI-RADS categories are as follows:
+            - BI-RADS 0: Incomplete - Need additional imaging
+            - BI-RADS 1: Negative (0% risk of malignancy)
+            - BI-RADS 2: Benign finding (0% risk of malignancy)
+            - BI-RADS 3: Probably benign (<2% risk of malignancy)
+            - BI-RADS 4A: Low suspicion for malignancy (2-10% risk)
+            - BI-RADS 4B: Moderate suspicion for malignancy (10-50% risk)
+            - BI-RADS 4C: High suspicion for malignancy (50-95% risk)
+            - BI-RADS 5: Highly suggestive of malignancy (>95% risk)
+            
+            Include an analysis of this BI-RADS classification in your report, explaining:
+            - What this specific BI-RADS category means (use the exact risk percentages above)
+            - How the visual features in the image support this classification
+            - What recommendations would typically be made for this classification
+            """
+            
+            prompt_template += """
             
             Provide a comprehensive yet accessible explanation in the style of a radiological report but written 
             for a general audience without medical training. Your report should include:
@@ -349,12 +392,17 @@ class VisionExplainer:
                 - Attention Entropy: How evenly distributed the attention is (higher = more dispersed)
             """
                 
+            if has_birads:
+                prompt_template += """
+            5. A discussion of the BI-RADS classification, what it means, and typical recommendations
+            """
+                
             prompt_template += """
-            5. A conclusion about what this analysis suggests (but avoid making specific diagnostic claims)
+            6. A conclusion about what this analysis suggests (but avoid making specific diagnostic claims)
             
             Your explanation should be structured like a medical report but use language that a person without medical knowledge can understand.
             """
-            
+                
             # Add specific guidance based on metrics
             if is_normal:
                 prompt_template += """
@@ -371,16 +419,28 @@ class VisionExplainer:
         
         # System prompt to guide the model's responses
         system_prompt = """
-        You are a radiologist specialized in breast ultrasound analysis. You are examining 
-        ultrasound images and their AI-generated segmentation results.
+        You are a radiologist specialized in breast ultrasound analysis with extensive knowledge of the BI-RADS classification system.
         
-        Your task is to provide a radiological-style report written in accessible language for a general audience, only with the following structure, nothing more.
+        IMPORTANT: The exact definitions of BI-RADS categories are:
+        - BI-RADS 0: Incomplete - Need additional imaging
+        - BI-RADS 1: Negative (0% risk of malignancy)
+        - BI-RADS 2: Benign finding (0% risk of malignancy)
+        - BI-RADS 3: Probably benign (<2% risk of malignancy)
+        - BI-RADS 4A: Low suspicion for malignancy (2-10% risk)
+        - BI-RADS 4B: Moderate suspicion for malignancy (10-50% risk)
+        - BI-RADS 4C: High suspicion for malignancy (50-95% risk)
+        - BI-RADS 5: Highly suggestive of malignancy (>95% risk)
+        
+        You MUST use these exact definitions and not deviate from them.
+        
+        Your task is to provide a radiological-style report written in accessible language for a general audience.
         
         IMPORTANT INSTRUCTIONS ABOUT YOUR RESPONSE FORMAT:
-        - Structure your report as a medical radiologist would, with clear sections but without the Patient Information, clinical history, or other unnecessary details.
+        - Structure your report as a medical radiologist would, with clear sections
         - Begin with a "FINDINGS" section that objectively describes what is visible
         - Include a "TECHNICAL ASSESSMENT" section that evaluates the quality of the AI segmentation
         - Add an "INTERPRETATION" section that explains what the findings might indicate
+        - If BI-RADS classification is provided, include a "BI-RADS ASSESSMENT" section using the EXACT definitions above
         - If explainability metrics are provided, include an "AI BEHAVIOR ANALYSIS" section discussing how the model arrived at its results
         - End with an "IMPRESSION" section that summarizes the key points
         - Use medical terms when necessary but always explain them in parentheses
@@ -409,7 +469,57 @@ class VisionExplainer:
             
             # Extract the response
             if response and 'message' in response and 'content' in response['message']:
-                return response['message']['content']
+                # Get the raw response
+                raw_response = response['message']['content']
+                
+                # If we have a BI-RADS category, ensure the response accurately describes it
+                if birads_category and birads_category in birads_definitions:
+                    # Check if the response contains any incorrect descriptions of the BI-RADS category
+                    incorrect_descriptions = {
+                        'BIRADS4A': ["benign", "probably benign"],
+                        'BIRADS4B': ["benign", "probably benign", "low suspicion"],
+                        'BIRADS4C': ["benign", "probably benign", "low suspicion", "moderate suspicion"],
+                        'BIRADS5': ["benign", "probably benign", "low suspicion", "moderate suspicion"]
+                    }
+                    
+                    if birads_category in incorrect_descriptions:
+                        # Get the section containing BI-RADS ASSESSMENT
+                        sections = raw_response.split("**")
+                        birads_section_index = -1
+                        
+                        for i, section in enumerate(sections):
+                            if "BI-RADS ASSESSMENT" in section:
+                                birads_section_index = i
+                                break
+                        
+                        # If found, check for incorrect descriptions
+                        if birads_section_index >= 0 and birads_section_index + 1 < len(sections):
+                            birads_content = sections[birads_section_index + 1]
+                            has_incorrect_description = False
+                            
+                            for incorrect in incorrect_descriptions[birads_category]:
+                                # Only check in the actual description, not when explicitly stating what it's NOT
+                                if incorrect in birads_content.lower() and "not " + incorrect not in birads_content.lower():
+                                    has_incorrect_description = True
+                                    break
+                            
+                            # If incorrect description found, override it
+                            if has_incorrect_description:
+                                # Create corrected BI-RADS section
+                                corrected_section = """BI-RADS ASSESSMENT
+    The image has been classified as """ + birads_description + """ with a confidence of """ + f"{birads_confidence:.2f}" + """.
+    This indicates a """ + ("moderate" if birads_category == "BIRADS4B" else "high" if birads_category in ["BIRADS4C", "BIRADS5"] else "low") + """ suspicion for malignancy.
+    The features that support this classification include: irregular shape, non-parallel orientation, indistinct margins, and heterogeneous texture.
+    For BI-RADS """ + birads_category[6:] + """, a biopsy is recommended to determine the nature of the lesion."""
+                                
+                                # Replace the section
+                                sections[birads_section_index] = "BI-RADS ASSESSMENT"
+                                sections[birads_section_index + 1] = corrected_section.replace("BI-RADS ASSESSMENT\n", "")
+                                
+                                # Reconstruct the response
+                                raw_response = "**".join(sections)
+                
+                return raw_response
             else:
                 return "Sorry, I couldn't generate an explanation for this segmentation."
                 

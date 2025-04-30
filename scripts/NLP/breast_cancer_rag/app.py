@@ -22,6 +22,9 @@ from PIL import Image
 # Import the vision explainer module
 from vision_explainer import VisionExplainer
 
+# Import the BIRADS classifier module
+from birads_csp import BIRADSClassifierCSP
+
 # Try to import voice processing modules if available
 try:
     from voice_processor import add_voice_controls_to_sidebar, add_voice_interface_to_chat, audio_recorder_and_transcriber
@@ -1488,37 +1491,41 @@ with tab5:  # Call to the medical glossary module
     medical_glossary.medical_glossary_ui()
 
 with tab6:
-    st.header("🩺 Breast Ultrasound Segmentation")
-    st.write("Upload an ultrasound image to segment breast tissue and visualize the result.")
+    st.header("🩺 Breast Ultrasound Segmentation & BI-RADS Analysis")
+    st.write("Upload an ultrasound image to segment breast tissue, visualize the result, and classify with BI-RADS using CSP.")
     
     # Informational box about the technology
-    with st.expander("ℹ️ About Breast Ultrasound Segmentation", expanded=False):
+    with st.expander("ℹ️ About Breast Ultrasound Segmentation & BI-RADS Classification", expanded=False):
         st.markdown("""
-        ### Breast Ultrasound Segmentation
+        ### Breast Ultrasound Segmentation & BI-RADS Analysis
         
-        This tool uses a U-Net neural network with attention mechanisms to automatically identify and highlight breast tissue in ultrasound images.
+        This tool combines AI-powered segmentation and BI-RADS classification using Constraint Satisfaction Problems (CSP):
         
-        **Key features:**
-        - AI-powered segmentation of breast tissue
+        **Segmentation Features:**
+        - AI-powered segmentation of breast tissue using a U-Net neural network
         - Adjustable threshold for fine-tuning detection sensitivity 
         - Dice coefficient calculation to evaluate segmentation quality
         
-        **What is the Dice coefficient?**
-        The Dice coefficient is a statistical measure of the similarity between two sets of data. In image segmentation:
-        - It ranges from 0 (no overlap) to 1 (perfect overlap)
-        - It is calculated as: 2 × |X ∩ Y| / (|X| + |Y|), where X and Y are the predicted and true segmentation areas
-        - Values above 0.7 typically indicate good segmentation quality
+        **BI-RADS Classification Features:**
+        - Automatic feature extraction from segmented images
+        - BI-RADS classification using weighted scoring algorithms
+        - Generated clinical report with findings and recommendations
         
-        **Special Case: Normal Images (No Lesions)**
-        For normal images with no lesions:
-        - The model should predict little to no segmentation (near empty mask)
-        - If the ground truth mask is also empty, the Dice coefficient is 1.0 (perfect agreement)
-        - Sensitivity and specificity will both be 1.0 for perfect detection of normal tissue
+        **What is BI-RADS?**
+        The Breast Imaging-Reporting and Data System (BI-RADS) is a standardized classification system ranging from:
+        - BI-RADS 1: Negative (no significant abnormality)
+        - BI-RADS 2: Benign finding
+        - BI-RADS 3: Probably benign
+        - BI-RADS 4: Suspicious (A: low, B: moderate, C: high suspicion)
+        - BI-RADS 5: Highly suggestive of malignancy
         
-        **Mask Detection:**
-        The system will automatically look for ground truth masks in:
-        1. Same directory with "_mask" suffix
-        2. BUSI dataset path: `/Volumes/Proyecto_Hugo/breast-cancer-analysis/datasets/Dataset_BUSI_with_GT`
+        **Classification Approach**
+        The system uses a weighted scoring system where:
+        - Variables: Features like shape, margin, orientation
+        - Weights: Importance of each feature based on medical literature
+        - Scores: Values that indicate benign (-) or suspicious (+) characteristics
+        
+        This approach aligns with clinical guidelines and reduces false positives.
         
         **Note:** This tool is for educational purposes only and should not replace professional medical evaluation.
         """)
@@ -1581,19 +1588,17 @@ with tab6:
             )
             area_percentage = metrics['area_ratio'] * 100
             
-            # Show if a mask was found
+            # Store true mask if available for later use with BI-RADS classification
             true_mask = None
             if 'mask_source' in metrics:
                 st.success(f"Found ground truth mask: {os.path.basename(metrics['mask_source'])}")
-                # Load the true mask for later use with the vision explainer
+                # Load the true mask
                 try:
-                    import numpy as np  
-                    
+                    import numpy as np
                     true_mask = Image.open(metrics['mask_source']).convert('L')
                     true_mask = np.array(true_mask) > 127  # Convert to binary
                 except Exception as e:
                     st.warning(f"Could not load ground truth mask: {str(e)}")
-                    st.code(str(e), language="python") 
 
         with col2:
             st.subheader("Segmentation Overlay")
@@ -1691,7 +1696,7 @@ with tab6:
         fig.colorbar(im, ax=ax, label='Probability')
         st.pyplot(fig)
         
-        # Explainability section 
+        # Explainability section - runs automatically
         st.subheader("Model Explainability")
         
         with st.spinner("Generating explainability visualization..."):
@@ -1748,7 +1753,7 @@ with tab6:
                     st.metric(
                         label="Importance Entropy", 
                         value=f"{importance_stats['importance_entropy']:.3f}",
-                        help="Measures how uniformly distributed the model's attention is. Higher values indicate more dispersed attention, lower values show more focused attention."
+                        help="Measures how uniformly attention is distributed. Higher values indicate more dispersed attention, lower values show more focused attention."
                     )
 
             with col3:
@@ -1791,22 +1796,231 @@ with tab6:
                 for segmentation decisions.
                 """)
         
-        # Merge metrics with importance_stats for the AI explanation
-        combined_metrics = metrics.copy()
-        combined_metrics.update(importance_stats)
+        # BI-RADS CSP Section
+        st.header("🏥 BI-RADS Classification")
+        
+        with st.expander("About BI-RADS Classification", expanded=True):
+            st.markdown("""
+            ### BI-RADS Classification with Weighted Scoring
+            
+            This analysis classifies breast lesions into BI-RADS categories using a weighted scoring approach based on imaging features.
+            
+            **How it works:**
+            1. Features are automatically extracted from the segmented image
+            2. Each feature is assigned a score indicating whether it favors benignity or malignancy
+            3. Features are weighted by their clinical importance (margin 25%, shape 20%, etc.)
+            4. The total weighted score determines the BI-RADS category
+            
+            **Available algorithms:**
+            - **Standard Scoring**: Direct weighted scoring based on extracted features
+            - **Fuzzy Logic Scoring**: Uses linguistic variables and fuzzy rules to handle uncertainty
+            
+            This approach aligns with clinical guidelines, reducing false positives while maintaining sensitivity for suspicious findings.
+            """)
+            
+        # Algorithm selection
+        st.subheader("Classification Algorithm")
+        csp_algorithm = st.radio(
+            "Select algorithm approach:",
+            ["Standard Scoring", "Fuzzy Logic Scoring"],
+            horizontal=True,
+            help="Standard uses weighted feature scoring. Fuzzy Logic uses linguistic variables and more complex rule combinations."
+        )
+        
+        # Map radio button selection to algorithm parameter
+        algorithm_map = {
+            "Standard Scoring": "standard",
+            "Fuzzy Logic Scoring": "fuzzy"
+        }
+        
+        # Run BI-RADS classification
+        with st.spinner("Analyzing features and determining BI-RADS category..."):
+            # Initialize the classifier
+            birads_classifier = BIRADSClassifierCSP()
+            
+            # Extract features from segmentation
+            birads_classifier.extract_features_from_segmentation(np.array(image), mask)
+            
+            # Get selected algorithm
+            selected_algorithm = algorithm_map[csp_algorithm]
+            
+            # Use the new classification method with selected algorithm
+            birads_category, confidence, report, detailed_results = birads_classifier.classify(algorithm=selected_algorithm)
+            
+        # Display BI-RADS results
+        st.subheader("BI-RADS Classification Results")
+        
+        # Style for BI-RADS category
+        birads_color = {
+            'BIRADS0': "gray",
+            'BIRADS1': "green",
+            'BIRADS2': "green",
+            'BIRADS3': "orange",
+            'BIRADS4A': "orange",
+            'BIRADS4B': "orange",
+            'BIRADS4C': "red",
+            'BIRADS5': "red"
+        }.get(birads_category, "blue")
+        
+        birads_descriptions = {
+            'BIRADS0': "BI-RADS 0: Incomplete - Need additional imaging",
+            'BIRADS1': "BI-RADS 1: Negative",
+            'BIRADS2': "BI-RADS 2: Benign finding",
+            'BIRADS3': "BI-RADS 3: Probably benign",
+            'BIRADS4A': "BI-RADS 4A: Low suspicion for malignancy",
+            'BIRADS4B': "BI-RADS 4B: Moderate suspicion for malignancy",
+            'BIRADS4C': "BI-RADS 4C: High suspicion for malignancy",
+            'BIRADS5': "BI-RADS 5: Highly suggestive of malignancy"
+        }
+        
+        st.markdown(f"<h3 style='color:{birads_color};'>{birads_descriptions.get(birads_category, birads_category)}</h3>", unsafe_allow_html=True)
+        st.metric("Confidence Level", f"{confidence:.2f}")
+        
+        # Display extracted features
+        st.subheader("Extracted Features")
+        
+        # Define feature names mapping
+        feature_names = {
+            'shape': 'Shape',
+            'margin': 'Margin',
+            'orientation': 'Orientation',
+            'echogenicity': 'Echogenicity',
+            'posterior': 'Posterior Features',
+            'size_mm': 'Size (mm)',
+            'boundaries': 'Boundaries',
+            'texture': 'Texture'
+        }
+        
+        # Create columns for feature display
+        feature_col1, feature_col2 = st.columns(2)
+        
+        # Process features for display
+        features_to_display = []
+        for feature, value in birads_classifier.variables.items():
+            if value is not None:
+                feature_name = feature_names.get(feature, feature)
+                
+                # Special handling for size if it's a dictionary
+                if feature == 'size_mm' and isinstance(value, dict):
+                    features_to_display.append({
+                        'name': feature_name,
+                        'display_name': f"{feature_name} (approx.)" if value.get('approximate', False) else feature_name,
+                        'value': f"{value.get('value', 0):.2f}",
+                        'weight': birads_classifier.feature_weights.get(feature, 0),
+                        'column': len(features_to_display) % 2  # 0 for col1, 1 for col2
+                    })
+                else:
+                    features_to_display.append({
+                        'name': feature_name,
+                        'display_name': feature_name,
+                        'value': value,
+                        'weight': birads_classifier.feature_weights.get(feature, 0),
+                        'column': len(features_to_display) % 2  # 0 for col1, 1 for col2
+                    })
+        
+        # Sort by weight (most important first)
+        features_to_display.sort(key=lambda x: x['weight'], reverse=True)
+        
+        # Display in alternating columns
+        for feature in features_to_display:
+            col = feature_col1 if feature['column'] == 0 else feature_col2
+            col.metric(feature['display_name'], feature['value'])
+        
+        # Display total score and decisive features
+        st.subheader("Classification Analysis")
+        score_col1, score_col2 = st.columns(2)
+        
+        with score_col1:
+            # Display total score
+            total_score = birads_classifier.metadata.get('total_score', 0)
+            st.metric("Total Score", f"{total_score:.3f}")
+            
+            # Score interpretation
+            if total_score < -0.2:
+                st.success("Score indicates benign finding")
+            elif total_score < 0.1:
+                st.info("Score indicates probably benign finding")
+            elif total_score < 0.3:
+                st.warning("Score indicates low to moderate suspicion")
+            else:
+                st.error("Score indicates high suspicion")
+        
+        with score_col2:
+            # Show decisive features
+            decisive_features = birads_classifier.metadata.get('decisive_features', [])
+            if decisive_features:
+                st.write("**Decisive Features:**")
+                for feature in decisive_features:
+                    readable_feature = feature_names.get(feature, feature)
+                    value = birads_classifier.variables.get(feature)
+                    # Use emoji to indicate if increases or decreases suspicion
+                    feature_value = value
+                    if feature == 'size_mm' and isinstance(value, dict):
+                        feature_value = f"{value.get('value', 0):.1f} mm"
+                    
+                    # Get score for this feature if available
+                    score = 0
+                    if hasattr(birads_classifier, 'feature_scores') and feature in birads_classifier.feature_scores and feature_value in birads_classifier.feature_scores[feature]:
+                        score = birads_classifier.feature_scores[feature][feature_value]
+                    elif 'feature_scores' in birads_classifier.metadata and feature in birads_classifier.metadata['feature_scores']:
+                        if 'score' in birads_classifier.metadata['feature_scores'][feature]:
+                            score = birads_classifier.metadata['feature_scores'][feature]['score']
+                    
+                    emoji = "✅" if score < 0 else "⚠️" if score > 0 else "➖"
+                    st.write(f"{emoji} {readable_feature}: {feature_value}")
+        
+        # Display limitations if any exist
+        limitations = birads_classifier.metadata.get('limitations', [])
+        if limitations:
+            with st.expander("Limitations in Assessment", expanded=True):
+                for limitation in limitations:
+                    st.info(f"• {limitation}")
+        
+        # Display constraint satisfaction results
+        st.subheader("BI-RADS Category Scores")
+        
+        # Convert results to format suitable for chart
+        chart_data = {k: v for k, v in detailed_results.items()}
+        
+        # Create bar chart
+        fig, ax = plt.subplots(figsize=(10, 5))
+        categories = list(chart_data.keys())
+        values = list(chart_data.values())
+        
+        # Generate colors
+        colors = ['green' if cat == birads_category else 'lightgray' for cat in categories]
+        
+        # Create bar chart
+        bars = ax.bar(categories, values, color=colors)
+        
+        # Add value labels on top of each bar
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                    f'{height:.2f}', ha='center', va='bottom')
+        
+        ax.set_ylim(0, 1.1)
+        ax.set_ylabel('Score')
+        ax.set_title('BI-RADS Category Scores')
+        plt.tight_layout()
+        
+        # Display chart
+        st.pyplot(fig)
         
         # AI Explanation Section
         st.subheader("📋 AI Analysis & Explanation")
         
         with st.spinner("Generating AI analysis of the segmentation results..."):
             try:
-                # Generate explanation using the vision model - now with importance_stats included
+                # Generate explanation using the vision model - now with importance_stats and BI-RADS included
                 explanation = vision_explainer.explain_segmentation(
                     original_image=image,
                     segmented_image=overlay_image,
-                    metrics=combined_metrics,
+                    metrics=metrics,
                     true_mask=true_mask,  # Pass the ground truth mask if available
-                    attention_map=cam_overlay  # Pass the attention visualization
+                    attention_map=attention_map,
+                    birads_category=birads_category,
+                    birads_confidence=confidence
                 )
                 
                 # Show the combined image created for the vision model
@@ -1824,9 +2038,13 @@ with tab6:
                 st.error(f"Error generating AI explanation: {str(e)}")
                 st.info("If the error persists, make sure Ollama is running with the 'llama3:vision' model available.")
         
+        # Display full report
+        st.subheader("BI-RADS Clinical Report")
+        st.text_area("Detailed Report", report, height=400)
+        
         # Export options
         st.subheader("Export Results")
-        export_col1, export_col2 = st.columns(2)
+        export_col1, export_col2, export_col3 = st.columns(3)
         
         with export_col1:
             # Convert overlay to bytes for download
@@ -1841,23 +2059,21 @@ with tab6:
             )
             
         with export_col2:
-            # Add report generation option
-            if st.button("Generate Report"):
-                # Get explanation if not already generated
-                if 'explanation' not in locals():
-                    try:
-                        explanation = vision_explainer.explain_segmentation(
-                            original_image=image,
-                            segmented_image=overlay_image,
-                            metrics=combined_metrics,  # Use combined metrics
-                            true_mask=true_mask
-                        )
-                    except Exception as e:
-                        explanation = "AI explanation could not be generated."
-                
-                report = f"""
-                # Breast Ultrasound Segmentation Report
-                
+            # Option to download the BI-RADS report
+            st.download_button(
+                label="Download BI-RADS Report",
+                data=report,
+                file_name=f"birads_report_{birads_category.lower()}.txt",
+                mime="text/plain"
+            )
+            
+        with export_col3:
+            # Add option to download a combined report
+            if st.button("Generate Combined Report"):
+                # Combine all analyses into one comprehensive report
+                combined_report = f"""
+                # Breast Ultrasound Analysis Report
+
                 **Date:** {datetime.now().strftime("%Y-%m-%d %H:%M")}
                 
                 ## Segmentation Results
@@ -1867,213 +2083,99 @@ with tab6:
                 
                 # Add Dice score if available
                 if 'dice' in metrics:
-                    report += f"""
-                - **Dice coefficient:** {metrics['dice']:.3f}
-                - **IoU (Jaccard):** {metrics['iou']:.3f}
-                - **Sensitivity:** {metrics['sensitivity']:.3f}
-                - **Specificity:** {metrics['specificity']:.3f}
-                """
+                    combined_report += f"""
+                    - **Dice coefficient:** {metrics['dice']:.3f}
+                    - **IoU (Jaccard):** {metrics['iou']:.3f}
+                    - **Sensitivity:** {metrics['sensitivity']:.3f}
+                    - **Specificity:** {metrics['specificity']:.3f}
+                    """
                 
-                # Add explainability metrics
-                report += f"""
+                # Add feature importance metrics
+                combined_report += f"""
                 ## Model Explainability Metrics
                 - **Boundary Focus:** {boundary_focus:.1f}% ({'Edge-focused' if boundary_focus > 60 else 'Region-focused'})
                 - **Attention Contiguity:** {importance_stats['importance_contiguity']:.3f} ({'Focused' if importance_stats['importance_contiguity'] > 0.7 else 'Dispersed'})
+                - **Attention Entropy:** {importance_stats.get('normalized_entropy', importance_stats.get('importance_entropy', 0)):.3f}
                 """
                 
-                # Add explanation to report
-                if 'explanation' in locals() and explanation:
-                    report += f"""
-                ## AI Analysis
+                # Add BI-RADS section
+                combined_report += f"""
+                ## BI-RADS Classification
+                - **Category:** {birads_descriptions.get(birads_category, birads_category)}
+                - **Confidence:** {confidence:.2f}
+                - **Algorithm used:** {csp_algorithm}
+                - **Total score:** {total_score:.3f}
+                - **Execution time:** {birads_classifier.metadata['execution_time']:.3f} seconds
                 
-                {explanation}
+                ### Extracted Features
                 """
                 
-                report += """
-                ## Notes
-                This is an automated segmentation using AI. Results should be verified by a medical professional.
+                # Add extracted features
+                for feature, value in birads_classifier.variables.items():
+                    if value is not None:
+                        feature_name = feature_names.get(feature, feature.capitalize())
+                        if feature == 'size_mm' and isinstance(value, dict):
+                            combined_report += f"- **{feature_name}:** {value.get('value', 0):.2f} (approximate)\n"
+                        else:
+                            combined_report += f"- **{feature_name}:** {value}\n"
+                
+                # Add BI-RADS report
+                combined_report += f"""
+                
+                ## Detailed BI-RADS Report
+                
+                {report}
+                
+                ## AI Explanation
+                
+                {explanation if 'explanation' in locals() else "AI explanation not available."}
+                
+                ## Disclaimer
+                
+                This analysis is based on algorithmic interpretation and should be reviewed by a healthcare professional.
+                It is not a substitute for clinical judgment or professional medical advice.
                 """
                 
                 # Convert report to bytes for download
-                report_bytes = io.BytesIO(report.encode())
+                report_bytes = io.BytesIO(combined_report.encode())
                 
                 st.download_button(
-                    label="Download Report (Markdown)",
+                    label="Download Combined Report (Markdown)",
                     data=report_bytes.getvalue(),
-                    file_name="breast_segmentation_report.md",
+                    file_name="breast_ultrasound_complete_analysis.md",
                     mime="text/markdown"
                 )
-                
-                # Convert report to bytes for download
-                report_bytes = io.BytesIO(report.encode())
-                
-                st.download_button(
-                    label="Download Report (Markdown)",
-                    data=report_bytes.getvalue(),
-                    file_name="breast_segmentation_report.md",
-                    mime="text/markdown"
-                )
-                
-        # PSO Optimization section 
-        st.header("Parameter Optimization")
-
-        # First expander for PSO introduction
-        with st.expander("Parameter Optimization with PSO", expanded=False):
-            st.markdown("""
-            ### Particle Swarm Optimization for Segmentation Parameters
-            
-            This module uses Particle Swarm Optimization (PSO) to find the optimal segmentation 
-            parameters for breast ultrasound images. PSO is a metaheuristic optimization algorithm 
-            inspired by social behavior of bird flocking or fish schooling.
-            
-            The optimization focuses on:
-            - **Threshold**: Cutoff value for segmentation (0.1 - 0.9)
-            - **Min Area**: Minimum region size to keep (10 - 200 pixels)
-            - **Smoothing**: Post-processing smoothing factor (0 - 5)
-            
-            **Technical details**: The algorithm uses 15 particles over 25 iterations with 
-            cognitive and social coefficients of 1.5 and inertia weight of 0.7.
-            """)
-            
-            run_optimization = st.button("Run Parameter Optimization")
-
-        # Separate expander for PSO explanation (not nested)
-        pso_details_expander = st.expander("How PSO Works", expanded=False)
-        with pso_details_expander:
-            st.markdown("""
-            ### Particle Swarm Optimization (PSO) Explained
-            
-            PSO is an optimization technique inspired by the social behavior of birds flocking:
-            
-            1. **Initialization**: Multiple "particles" (potential solutions) are randomly placed in the parameter space
-            2. **Evaluation**: Each particle's position is evaluated using a fitness function
-            3. **Update**: Particles update their velocity and position based on:
-            - Their personal best position
-            - The global best position found by any particle
-            - An inertia factor to maintain momentum
-            4. **Convergence**: Through multiple iterations, particles converge around optimal solutions
-            
-            This results in an efficient exploration of the parameter space to find optimal values.
-            
-            **PSO in Segmentation**: For breast ultrasound segmentation, PSO helps find optimal threshold, 
-            region size, and smoothing parameters that maximize segmentation quality measured by region 
-            properties and, when available, overlap with ground truth.
-            """)
-
-        # Add the PSO optimization execution code outside any expander
-        if 'run_optimization' in locals() and run_optimization:
-            with st.spinner("Setting up optimization environment..."):
-                # Import the optimizer
-                from segmentation_optimizer import SegmentationPSO
-                
-                # Prepare sample images for optimization
-                if uploaded_image is not None:
-                    # Use the current image
-                    validation_images = [image]
-                    
-                    if 'sample_images' not in st.session_state:
-                        # Default to just the current image
-                        st.session_state.sample_images = validation_images
-                else:
-                    # No image uploaded, provide a message
-                    st.warning("Please upload an image first")
-                    st.stop()
-            
-            # Create optimization progress indicators
-            progress_bar = st.progress(0)
-            progress_text = st.empty()
-            
-            def progress_callback(iteration, max_iterations, current_score):
-                progress = (iteration + 1) / max_iterations
-                progress_bar.progress(progress)
-                progress_text.text(f"Iteration {iteration+1}/{max_iterations} - Current Score: {current_score:.4f}")
-            
-            # Run PSO
-            with st.spinner("Running PSO optimization..."):
-                # Initialize optimizer
-                pso = SegmentationPSO(
-                    segmentation_model=segmentation_model,
-                    validation_images=st.session_state.sample_images,
-                    num_particles=15,
-                    max_iterations=25
-                )
-                
-                # Run optimization
-                best_params, best_score, history = pso.optimize(progress_callback)
-                
-                # Display results
-                st.success(f"Optimization complete! Best score: {best_score:.4f}")
-                
-                # Show best parameters
-                st.subheader("Optimized Parameters")
-                for param, value in best_params.items():
-                    st.write(f"**{param}:** {value:.4f}")
-                
-                # Generate and display visualization
-                st.subheader("Optimization Process Visualization")
-                fig = pso.visualize_optimization()
-                st.pyplot(fig)
-                
-                # Show effect of different parameters
-                st.subheader("Parameter Effect Visualization")
-                param_effect_fig = pso.visualize_parameters_effect(image)
-                st.pyplot(param_effect_fig)
-                
-                # Save parameters to session state
-                st.session_state.optimized_params = best_params
-                
-                # Apply optimized parameters to current image
-                if st.button("Apply optimized parameters to current image"):
-                    with st.spinner("Applying optimized parameters..."):
-                        # Apply threshold parameter
-                        optimized_threshold = best_params['threshold']
-                        mask, prob_map = segmentation_model.predict(image, threshold=optimized_threshold)
-                        
-                        # Apply min_area filtering
-                        from skimage import measure
-                        labels = measure.label(mask)
-                        regions = measure.regionprops(labels)
-                        
-                        optimized_min_area = best_params['min_area']
-                        filtered_mask = np.zeros_like(mask)
-                        for region in regions:
-                            if region.area >= optimized_min_area:
-                                filtered_mask[labels == region.label] = 1
-                        
-                        # Create overlay
-                        overlay_image = segmentation_model.overlay_mask(image, filtered_mask)
-                        
-                        # Display result
-                        st.image(overlay_image, caption="Segmentation with Optimized Parameters", use_column_width=True)
-                        
+        
         # Clean up temporary files
         try:
-            if temp_image_path and os.path.exists(temp_image_path):
+            # Only try to clean up if temp_image_path exists and is defined
+            if 'temp_image_path' in locals() and temp_image_path and os.path.exists(temp_image_path):
                 os.remove(temp_image_path)
         except Exception as e:
             st.warning(f"Error cleaning up temporary files: {str(e)}")
-                
     else:
-        st.info("Please upload an ultrasound image to begin segmentation.")
+        st.info("Please upload an ultrasound image to begin analysis.")
         
         # Show example images
         st.subheader("Example Results")
         st.markdown("""
-        The images below show examples of breast ultrasound segmentation:
-        - Original ultrasound image
-        - AI-generated segmentation mask overlaid in red
-        - Probability map showing confidence levels
-        - AI-generated explanation of the segmentation results
+        This tool provides:
         
-        Upload your own image to try the segmentation and get an AI-powered analysis.
+        1. **AI Segmentation**: Identifies regions of interest in breast ultrasound images
+        2. **BI-RADS Classification**: Uses weighted scoring to classify findings
+        3. **Model Explainability**: Shows how the AI model arrived at its decisions
+        4. **Clinical Report**: Generates a comprehensive analysis with recommendations
         
-        **Tip**: The system will automatically look for a ground truth mask in the BUSI dataset to calculate the Dice coefficient.
-        
-        **About the AI Analysis**: The system uses a multimodal vision model (Llama 3 Vision) to analyze the segmentation results and provide a human-readable explanation. This feature helps interpret the metrics and understand what the segmentation is showing.
+        Upload your own image to try the complete analysis pipeline.
         """)
-        
-        # Add information about Ollama requirement
-        st.info("💡 To use the AI explanation feature, make sure you have Ollama running with the llama3:vision model already installed.")
+                        
+        # Clean up temporary files
+        try:
+            # Only try to clean up if temp_image_path exists and is defined
+            if 'temp_image_path' in locals() and temp_image_path and os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+        except Exception as e:
+            st.warning(f"Error cleaning up temporary files: {str(e)}")
 
 # Debug information
 with st.expander("Debug information", expanded=False):

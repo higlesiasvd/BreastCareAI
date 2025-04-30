@@ -23,7 +23,7 @@ from PIL import Image
 from vision_explainer import VisionExplainer
 
 # Import the BIRADS classifier module
-from birads_csp import BIRADSClassifierCSP
+from birads_wrbs import BIRADSClassifierWRBS
 
 # Try to import voice processing modules if available
 try:
@@ -1492,14 +1492,14 @@ with tab5:  # Call to the medical glossary module
 
 with tab6:
     st.header("🩺 Breast Ultrasound Segmentation & BI-RADS Analysis")
-    st.write("Upload an ultrasound image to segment breast tissue, visualize the result, and classify with BI-RADS using CSP.")
+    st.write("Upload an ultrasound image to segment breast tissue, visualize the result, and classify with BI-RADS using a weighted rule-based approach.")
     
     # Informational box about the technology
     with st.expander("ℹ️ About Breast Ultrasound Segmentation & BI-RADS Classification", expanded=False):
         st.markdown("""
         ### Breast Ultrasound Segmentation & BI-RADS Analysis
         
-        This tool combines AI-powered segmentation and BI-RADS classification using Constraint Satisfaction Problems (CSP):
+        This tool combines AI-powered segmentation and BI-RADS classification using a weighted rule-based approach based on imaging features:
         
         **Segmentation Features:**
         - AI-powered segmentation of breast tissue using a U-Net neural network
@@ -1796,7 +1796,7 @@ with tab6:
                 for segmentation decisions.
                 """)
         
-        # BI-RADS CSP Section
+        # BI-RADS wrbs Section
         st.header("🏥 BI-RADS Classification")
         
         with st.expander("About BI-RADS Classification", expanded=True):
@@ -1820,29 +1820,29 @@ with tab6:
             
         # Algorithm selection
         st.subheader("Classification Algorithm")
-        csp_algorithm = st.radio(
+        wrbs_algorithm = st.radio(
             "Select algorithm approach:",
-            ["Standard Scoring", "Fuzzy Logic Scoring"],
+            ["Weighted Scoring", "Fuzzy Logic Scoring"],
             horizontal=True,
             help="Standard uses weighted feature scoring. Fuzzy Logic uses linguistic variables and more complex rule combinations."
         )
         
         # Map radio button selection to algorithm parameter
         algorithm_map = {
-            "Standard Scoring": "standard",
+            "Weighted Scoring": "weighted",
             "Fuzzy Logic Scoring": "fuzzy"
         }
         
         # Run BI-RADS classification
         with st.spinner("Analyzing features and determining BI-RADS category..."):
             # Initialize the classifier
-            birads_classifier = BIRADSClassifierCSP()
+            birads_classifier = BIRADSClassifierWRBS()
             
             # Extract features from segmentation
             birads_classifier.extract_features_from_segmentation(np.array(image), mask)
             
             # Get selected algorithm
-            selected_algorithm = algorithm_map[csp_algorithm]
+            selected_algorithm = algorithm_map[wrbs_algorithm]
             
             # Use the new classification method with selected algorithm
             birads_category, confidence, report, detailed_results = birads_classifier.classify(algorithm=selected_algorithm)
@@ -2103,7 +2103,7 @@ with tab6:
                 ## BI-RADS Classification
                 - **Category:** {birads_descriptions.get(birads_category, birads_category)}
                 - **Confidence:** {confidence:.2f}
-                - **Algorithm used:** {csp_algorithm}
+                - **Algorithm used:** {wrbs_algorithm}
                 - **Total score:** {total_score:.3f}
                 - **Execution time:** {birads_classifier.metadata['execution_time']:.3f} seconds
                 

@@ -22,7 +22,7 @@ The application integrates multiple specialized modules to create a holistic sup
 
 BreastCareAI is built on a modular architecture with Streamlit as the frontend framework and integrates multiple specialized components:
 
-![Architecture Diagram](/Volumes/Proyecto_Hugo/breast-cancer-analysis/utils/arquitecture diagram.png)
+![Architecture Diagram](/Volumes/Proyecto_Hugo/breast-cancer-analysis/scripts/FINAL APP/BreastCareAI/arquitecture diagram.png)
 
 ### Core Technologies
 

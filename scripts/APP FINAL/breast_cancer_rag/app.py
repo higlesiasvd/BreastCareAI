@@ -36,8 +36,21 @@ except ImportError:
 
 # Page settings
 st.set_page_config(page_title="BreastCare AI", page_icon="🎗️", layout="wide")
-st.title("🎗️ BreastCareAI - Breast Cancer Information and Counseling")
-st.caption("Your trusted AI companion for breast health guidance and support")
+logo_col, text_col = st.columns([1.2, 3])
+
+with logo_col:
+    st.image("breastcare_ai_logo.png", use_column_width=True)
+
+with text_col:
+    st.markdown("""
+        <div style="height: 100px; display: flex; align-items: center; padding-top: 12px;">
+            <p style="font-size: 22px; font-weight: 600; color: #111; margin: 0;">
+                Your trusted <span style="color:#000;">AI companion</span> for breast health guidance and support
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<hr style='margin-top: 15px; margin-bottom: 30px;'>", unsafe_allow_html=True)
 
 # Custom styles to enhance the chat interface
 st.markdown("""

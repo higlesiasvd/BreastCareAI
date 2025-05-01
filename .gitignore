@@ -178,12 +178,18 @@ model*
 *.bin
 *.safetensors
 *.pth
+*.pt
+*.json
+*.pkl
 # Checkpoints
 *.checkpoint
 
 # folders
 papers/
 presentations/
+/scripts/FINAL APP/BreastCareAI/guidelines_to_review/
+/scripts/FINAL APP/BreastCareAI/knowledge_base/
+/scripts/FINAL APP/BreastCareAI/vectorstores/
 
 # macOS system files
 .DS_Store
@@ -192,3 +198,4 @@ presentations/
 token.json
 credentials.json
 token.pickle
+medications.json

@@ -10,7 +10,7 @@ import pandas as pd
 from langchain.memory import ConversationBufferWindowMemory
 import numpy as np
 
-# Module imports - keeping original structure
+# Module imports
 import calendar_integration
 import medication_reminders
 import med_detection
@@ -1005,11 +1005,11 @@ with st.sidebar:
     
     # Add simple link to the PDF user guide
     st.subheader("📖 User Guide")
-    st.markdown("[Download User Guide PDF](https://github.com/higlesiasvd/breast-cancer-analysis/blob/main/docs/user_guide.pdf)")
+    st.markdown("[Download User Guide PDF](https://github.com/higlesiasvd/breast-cancer-analysis/blob/main/scripts/APP%20FINAL/breast_cancer_rag/user-guide.pdf)")
     st.caption("The user guide contains instructions, FAQs, and tips for using the application effectively.")
 
 # --------------------------
-# MAIN TABS - REORGANIZED
+# MAIN TABS
 # --------------------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "💬 Conversation & Documents", 
@@ -1020,7 +1020,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # --------------------------
-# TAB 1: CONVERSATION & DOCUMENTS (COMBINED)
+# TAB 1: CONVERSATION & DOCUMENTS
 # --------------------------
 with tab1:
     
@@ -1391,7 +1391,7 @@ with tab1:
                     st.warning("No processed documents to answer your question. Please upload and process documents first (use the 'Upload Documents' section above).")
 
 # --------------------------
-# TAB 2: BREAST ULTRASOUND SEGMENTATION - MOVED TO SECOND POSITION
+# TAB 2: BREAST ULTRASOUND SEGMENTATION & BI-RADS
 # --------------------------
 with tab2:
     st.header("🩺 Breast Ultrasound Segmentation & BI-RADS Analysis")
@@ -2117,7 +2117,7 @@ with tab5:
 st.markdown("---")
 st.header("🔍 Medical Terms Analysis")
 
-# Verificar si hay mensajes del asistente para analizar
+# Verify if there are any assistant messages in the conversation history
 has_assistant = False
 last_assistant_message = None
 
@@ -2142,11 +2142,12 @@ if has_assistant:
                     detected_terms = detector.detect_medical_terms(last_assistant_message)
                     
                     if detected_terms:
-                        # Inicializar saved_medical_terms si no existe
+                        # Check if the glossary exists in session state
+                        # Initialize the glossary if it doesn't exist
                         if 'saved_medical_terms' not in st.session_state:
                             st.session_state.saved_medical_terms = []
                         
-                        # Añadir solo términos nuevos
+                        # Check for new terms and add them to the glossary
                         terms_added = 0
                         current_terms = [t['term'] for t in st.session_state.saved_medical_terms]
                         
@@ -2155,7 +2156,7 @@ if has_assistant:
                                 st.session_state.saved_medical_terms.append(term)
                                 terms_added += 1
                         
-                        # Guardar resultados en session_state
+                        # Store results in session state
                         st.session_state.inline_med_results = {
                             "terms": detected_terms,
                             "terms_added": terms_added,
@@ -2169,7 +2170,7 @@ if has_assistant:
 else:
     st.info("No assistant responses available to analyze. Start a conversation first.")
 
-# Mostrar resultados si existen
+# Show results if available
 if 'inline_med_results' in st.session_state:
     results = st.session_state.inline_med_results
     

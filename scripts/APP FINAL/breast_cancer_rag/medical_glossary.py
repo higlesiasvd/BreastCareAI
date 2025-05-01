@@ -49,7 +49,7 @@ def medical_glossary_ui():
     # Tab 1: Saved terms
     with tab1:
         if not st.session_state.saved_medical_terms:
-            st.info("You haven't saved any medical terms yet. When reading through the conversation, click on 'Explain medical terms' to analyze and save terms for your reference.")
+            st.info("You haven't saved any medical terms yet. When reading through the conversation, click on 'Analyze Medical Terms' to analyze and save terms for your reference.")
         else:
             # Sort terms by category
             terms_by_category = {}
@@ -160,8 +160,9 @@ def medical_glossary_ui():
                 for category, terms in terms_by_category.items():
                     md_content += f"## {category}\n\n"
                     for term in terms:
-                        md_content += f"{term.get('definition', term.get('explanation', 'No explanation available'))}\n\n"
-                        md_content += f"{st.markdown(term.get('definition', term.get('explanation', 'No explanation available')))}\n\n"
+                        definition = term.get('definition', term.get('explanation', 'No explanation available'))
+                        md_content += f"### {term['term'].capitalize()}\n"
+                        md_content += f"{definition}\n\n"
                 
                 st.download_button(
                     "Download Markdown",
@@ -288,4 +289,5 @@ if __name__ == "__main__":
             }
         ]
     
+    # Only call this when running this file directly, not when imported
     medical_glossary_ui()

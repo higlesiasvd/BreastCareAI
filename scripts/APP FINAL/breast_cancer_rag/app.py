@@ -978,7 +978,7 @@ with st.sidebar:
                     st.success(f"✅ Collection '{st.session_state.current_collection}' loaded successfully")
                 else:
                     st.warning(f"No saved collection found for '{st.session_state.current_collection}'")
-    
+
     # Export conversation option
     if st.session_state.messages:
         chat_export = "\n\n".join([f"{'User' if m['role']=='user' else 'Assistant'}: {m['content']}" for m in st.session_state.messages])
@@ -989,7 +989,7 @@ with st.sidebar:
             use_container_width=True
         )
     
-    # Voice control configuration (removed as requested)
+    # Voice control configuration
     use_voice = False
     
     # 8. Help and Documentation
@@ -1023,6 +1023,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # TAB 1: CONVERSATION & DOCUMENTS (COMBINED)
 # --------------------------
 with tab1:
+    
     # Document Upload Section in an expander
     with st.expander("📄 Upload Documents", expanded=False):
         st.header("Upload Documents")
@@ -1148,7 +1149,7 @@ with tab1:
                 st.success("🎗️ **Breast-Cancer-Llama3** - Personalized model that avoids confusing case studies with personal information")
             else:
                 st.warning(f"⚠️ {st.session_state.llm_model} - Alternative model")
-    
+
     # Customize FAQs based on patient stage
     stage = st.session_state.patient_profile["stage"]
     
@@ -1265,44 +1266,6 @@ with tab1:
                 import time
                 time.sleep(10)
                 voice_text = None
-    
-    # Add medical terms detection button directly in the chat interface
-    if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
-        last_answer = st.session_state.messages[-1]["content"]
-        
-        # Add button to analyze medical terms after assistant's response
-        if st.button("🔍 Explain Medical Terms in This Response", key="inline_terms_btn"):
-            with st.spinner("Analyzing text for medical terms..."):
-                try:
-                    detector = med_detection.get_medical_terms_detector()
-                    detected_terms = detector.detect_medical_terms(last_answer)
-                    
-                    if detected_terms:
-                        # Automatically save terms
-                        if 'saved_medical_terms' not in st.session_state:
-                            st.session_state.saved_medical_terms = []
-                        
-                        # Add only new terms
-                        terms_added = 0
-                        current_terms = [t['term'] for t in st.session_state.saved_medical_terms]
-                        for term in detected_terms:
-                            if term['term'] not in current_terms:
-                                st.session_state.saved_medical_terms.append(term)
-                                terms_added += 1
-                        
-                        # Show terms
-                        with st.expander(f"📚 Medical terms in this response:", expanded=True):
-                            st.markdown(
-                                detector.format_results_for_display(detected_terms),
-                                unsafe_allow_html=True
-                            )
-                            
-                            # Add link to glossary tab
-                            st.info(f"✅ Found {len(detected_terms)} medical terms. {terms_added} new terms saved to the Medical Glossary tab.")
-                    else:
-                        st.info("No medical terms detected in this response.")
-                except Exception as e:
-                    st.error(f"Error analyzing medical terms: {str(e)}")
     
     # User input using chat_input
     user_question = st.chat_input("Type your question about breast cancer")
@@ -2147,6 +2110,92 @@ with tab4:
 with tab5:
     # Call to the medical glossary module
     medical_glossary.medical_glossary_ui()
+
+# --------------------------
+# MEDICAL TERMS ANALYSIS 
+# --------------------------
+st.markdown("---")
+st.header("🔍 Medical Terms Analysis")
+
+# Verificar si hay mensajes del asistente para analizar
+has_assistant = False
+last_assistant_message = None
+
+if 'messages' in st.session_state and st.session_state.messages:
+    for msg in reversed(st.session_state.messages):
+        if msg["role"] == "assistant":
+            has_assistant = True
+            last_assistant_message = msg["content"]
+            break
+
+if has_assistant:
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        st.caption("Analyze the latest assistant response to identify and explain medical terminology")
+    
+    with col2:
+        if st.button("Analyze Now", key="inline_medical_btn", use_container_width=True):
+            with st.spinner("Analyzing medical terms..."):
+                try:
+                    detector = med_detection.get_medical_terms_detector()
+                    detected_terms = detector.detect_medical_terms(last_assistant_message)
+                    
+                    if detected_terms:
+                        # Inicializar saved_medical_terms si no existe
+                        if 'saved_medical_terms' not in st.session_state:
+                            st.session_state.saved_medical_terms = []
+                        
+                        # Añadir solo términos nuevos
+                        terms_added = 0
+                        current_terms = [t['term'] for t in st.session_state.saved_medical_terms]
+                        
+                        for term in detected_terms:
+                            if term['term'] not in current_terms:
+                                st.session_state.saved_medical_terms.append(term)
+                                terms_added += 1
+                        
+                        # Guardar resultados en session_state
+                        st.session_state.inline_med_results = {
+                            "terms": detected_terms,
+                            "terms_added": terms_added,
+                            "html": detector.format_results_for_display(detected_terms)
+                        }
+                        st.experimental_rerun()
+                    else:
+                        st.info("No medical terms detected in the latest response.")
+                except Exception as e:
+                    st.error(f"Error analyzing terms: {str(e)}")
+else:
+    st.info("No assistant responses available to analyze. Start a conversation first.")
+
+# Mostrar resultados si existen
+if 'inline_med_results' in st.session_state:
+    results = st.session_state.inline_med_results
+    
+    if results["terms"]:
+        st.success(f"Found {len(results['terms'])} medical terms. {results['terms_added']} new terms saved to glossary.")
+        
+        with st.expander("Medical terms found:", expanded=True):
+            st.markdown(results["html"], unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([4, 1])
+            with col2:
+                if st.button("Clear Results", key="clear_inline_results", use_container_width=True):
+                    del st.session_state.inline_med_results
+                    st.experimental_rerun()
+            
+            with col1:
+                st.info("All terms have been automatically saved to the Medical Glossary tab.")
+    else:
+        st.info("No medical terms detected in the last response.")
+        
+        if st.button("Dismiss", key="dismiss_no_terms_inline"):
+            del st.session_state.inline_med_results
+            st.experimental_rerun()
+
+st.markdown("---")
+
 
 # --------------------------
 # DEBUG INFORMATION - ONLY VISIBLE WHEN EXPANDED

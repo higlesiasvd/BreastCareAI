@@ -10,12 +10,13 @@ import pandas as pd
 from langchain.memory import ConversationBufferWindowMemory
 import numpy as np
 
+# Module imports - keeping original structure
 import calendar_integration
 import medication_reminders
 import med_detection
 import medical_glossary
 
-# Import the breast segmentation module
+# Import specialized modules
 from breast_segmentation_module import BreastSegmentationModel
 import io
 from PIL import Image
@@ -37,7 +38,6 @@ except ImportError:
 st.set_page_config(page_title="BreastCare AI", page_icon="🎗️", layout="wide")
 st.title("🎗️ BreastCareAI - Breast Cancer Information and Counseling")
 st.caption("Your trusted AI companion for breast health guidance and support")
-#st.markdown("Access verified medical information about breast cancer")
 
 # Custom styles to enhance the chat interface
 st.markdown("""
@@ -59,6 +59,15 @@ div.stChatMessage.user {
 }
 div.stChatMessage.assistant {
     background-color: #f0f2f6;
+}
+
+/* Profile card styling only - removed sidebar styling that caused issues */
+.profile-card {
+    background-color: #f0f7ff;
+    border-radius: 10px;
+    padding: 10px;
+    border-left: 4px solid #4e8cff;
+    margin-bottom: 15px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -106,7 +115,7 @@ except Exception as e:
     st.info("Install the required dependencies with: pip install langchain langchain-community pypdf unstructured faiss-cpu pdf2image pandas")
     st.stop()
 
-# Verificar dependencias de Google Calendar
+# Verify Google Calendar dependencies
 try:
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -116,7 +125,6 @@ try:
 except Exception as e:
     st.warning(f"Some Google Calendar dependencies are not available: {str(e)}")
     st.info("To enable integration with Google Calendar, install: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
-    # No hacemos st.stop() aquí para que la aplicación siga funcionando sin la integración de calendario
 
 # Verify if Ollama is installed and running
 try:
@@ -127,7 +135,6 @@ try:
     # Check for available models
     if "llama3:8b" in result.stdout:
         available_models.append("llama3:8b")
-        #st.success("✅ Model llama3:8b detected successfully")
     else:
         st.warning("⚠️ llama3:8b not found. Make sure you have it installed")
         st.code("ollama pull llama3:8b", language="bash")
@@ -135,16 +142,13 @@ try:
     # Check if the phi2-breast-cancer model is available
     if "phi2-breast-cancer" in result.stdout:
         available_models.append("phi2-breast-cancer")
-        #st.success("✅ Model phi2-breast-cancer detected successfully")
     else:
         st.warning("⚠️ phi2-breast-cancer not found. If you want to use this model, make sure it's installed")
 
     if "breast-cancer-llama3" in result.stdout:
         available_models.append("breast-cancer-llama3")
-        #st.success("✅ Modelo breast-cancer-llama3 detectado correctamente")
     else:
         st.warning("⚠️ breast-cancer-llama3 not found. If you want to use this model, execute :\n`ollama create breast-cancer-llama3 -f ./Modelfile`")
-        
         
     if not available_models:
         st.error("❌ No compatible models found. Install at least one of the required models.")
@@ -217,6 +221,9 @@ if 'llm_model' not in st.session_state:
     else:
         st.session_state.llm_model = available_models[0] if available_models else "llama3:8b"
 
+# --------------------------
+# HELPER FUNCTIONS
+# --------------------------
 
 # Persistent storage functions
 def save_vectorstore(vs, collection_name):
@@ -598,36 +605,6 @@ class PrecomputedRetriever(BaseRetriever):
         """Asynchronously return pre-computed documents."""
         return self._docs
 
-# Initial knowledge base loading
-if not st.session_state.knowledge_base_loaded:
-    # Create knowledge_base folder if it doesn't exist
-    create_knowledge_base_folder()
-    
-    # Try to load pre-processed vectorstore
-    loaded_kb = load_vectorstore("Knowledge Base")
-    
-    if loaded_kb:
-        st.session_state.collections["Knowledge Base"] = {
-            "files": get_knowledge_base_pdfs(),
-            "vectorstore": loaded_kb,
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
-        }
-        st.session_state.current_collection = "Knowledge Base"
-        st.session_state.vectorstore = loaded_kb
-        st.session_state.knowledge_base_loaded = True
-    else:
-        # Process knowledge base if vectorstore doesn't exist
-        vs = process_knowledge_base()
-        if vs:
-            st.session_state.collections["Knowledge Base"] = {
-                "files": get_knowledge_base_pdfs(),
-                "vectorstore": vs,
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
-            }
-            st.session_state.current_collection = "Knowledge Base"
-            st.session_state.vectorstore = vs
-            st.session_state.knowledge_base_loaded = True
-
 # Function to reset conversation memory
 def reset_conversation_memory():
     """Reset the conversation and its memory"""
@@ -780,38 +757,54 @@ def process_pdf(file, temp_dir):
             st.error(f"Error with alternative method: {str(e2)}")
             return []
 
-# Sidebar configuration with patient profile and document collections
+# Initial knowledge base loading
+if not st.session_state.knowledge_base_loaded:
+    # Create knowledge_base folder if it doesn't exist
+    create_knowledge_base_folder()
+    
+    # Try to load pre-processed vectorstore
+    loaded_kb = load_vectorstore("Knowledge Base")
+    
+    if loaded_kb:
+        st.session_state.collections["Knowledge Base"] = {
+            "files": get_knowledge_base_pdfs(),
+            "vectorstore": loaded_kb,
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+        st.session_state.current_collection = "Knowledge Base"
+        st.session_state.vectorstore = loaded_kb
+        st.session_state.knowledge_base_loaded = True
+    else:
+        # Process knowledge base if vectorstore doesn't exist
+        vs = process_knowledge_base()
+        if vs:
+            st.session_state.collections["Knowledge Base"] = {
+                "files": get_knowledge_base_pdfs(),
+                "vectorstore": vs,
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+            }
+            st.session_state.current_collection = "Knowledge Base"
+            st.session_state.vectorstore = vs
+            st.session_state.knowledge_base_loaded = True
+
+# --------------------------
+# SIDEBAR - REORGANIZED FOR BETTER UX
+# --------------------------
 with st.sidebar:
     st.header("Configuration")
     
-    # Conversation control
-    st.subheader("Conversation Control")
-    if st.button("New Conversation"):
-        # Reset memory and messages
+    # 1. Prominently display Reset App button at the top
+    st.subheader("🔁 Reset Application")
+    if st.button("New Conversation", use_container_width=True):
         reset_conversation_memory()
-        st.session_state.messages = []
-        st.session_state.memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            output_key="answer",
-            k=5
-        )
-        st.session_state.previous_topics = []
-        st.success("Conversation reset")
-        st.experimental_rerun()
     
-    # Export conversation
-    if st.session_state.messages:
-        chat_export = "\n\n".join([f"{'User' if m['role']=='user' else 'Assistant'}: {m['content']}" for m in st.session_state.messages])
-        st.download_button(
-            "Download conversation", 
-            chat_export, 
-            file_name=f"breast-cancer-conversation-{datetime.now().strftime('%Y%m%d-%H%M')}.txt"
-        )
+    # 2. Patient profile with improved visualization
+    st.subheader("👤 Patient Profile")
     
-    # Patient profile section
-    st.subheader("Patient Profile")
-    with st.expander("Configure profile"):
+    # Create a call-to-action for the user to set up their profile
+    st.info("⚠️ Please configure your patient profile to get personalized information.")
+    
+    with st.expander("Configure your profile"):
         st.session_state.patient_profile["age"] = st.number_input(
             "Age", 
             min_value=18, 
@@ -820,7 +813,7 @@ with st.sidebar:
         )
         
         st.session_state.patient_profile["stage"] = st.selectbox(
-            "Stage",
+            "Cancer Stage",
             ["Pre-diagnosis", "Recently diagnosed", "In treatment", "Post-treatment", "Survivor"],
             index=["Pre-diagnosis", "Recently diagnosed", "In treatment", "Post-treatment", "Survivor"].index(st.session_state.patient_profile["stage"])
         )
@@ -830,9 +823,15 @@ with st.sidebar:
             ["Basic Information", "Technical details", "Treatment options", "Clinical studies"],
             default=st.session_state.patient_profile["preferences"]
         )
+        
+        if st.button("Save Profile"):
+            st.success("Profile saved successfully!")
+            st.session_state.profile_configured = True
+    
+    # 3. Model configuration
+    st.subheader("🗣️ Model Configuration")
     
     # Model selection for responses
-    st.subheader("Response Model")
     llm_models = [model for model in available_models if model in ["breast-cancer-llama3","llama3:8b", "phi2-breast-cancer"]]
     if llm_models:
         selected_llm = st.selectbox(
@@ -846,12 +845,13 @@ with st.sidebar:
         if selected_llm == "llama3:8b":
             st.info("**Llama 3 8B**: Meta's base model with good general performance in English.")
         elif selected_llm == "phi2-breast-cancer":
-            st.success("**Phi-2 Breast Cancer**: Specialized model with fine-tuning for breast cancer. May offer more specific responses adapted to the oncological medical context.")
+            st.success("**Phi-2 Breast Cancer**: Specialized model with fine-tuning for breast cancer.")
         elif selected_llm == "breast-cancer-llama3":
-            st.success("**Breast Cancer Llama 3**: Custom model with system prompt that avoids contextual hallucinations.")
+            st.success("**Breast Cancer Llama 3**: Custom model with system prompt for oncological context.")
     else:
-        st.error("No compatible models found. Make sure you have llama3:8b or phi2-breast-cancer installed in Ollama.")
+        st.error("No compatible models found. Make sure you have a model installed in Ollama.")
     
+    # Embedding model selection
     embedding_model = st.selectbox(
         "Embedding model",
         ["all-minilm", "nomic-embed-text", "llama3:8b"],
@@ -859,244 +859,278 @@ with st.sidebar:
             if st.session_state.embedding_model in ["all-minilm", "nomic-embed-text", "llama3:8b"] else 0
     )
     st.session_state.embedding_model = embedding_model
-
-    st.info("""
-    **Model recommendations:**
-    - **all-minilm**: Fast and efficient, specialized in embeddings (recommended)
-    - **nomic-embed-text**: High quality for texts, if available
-    - **llama3:8b**: Larger general model, may be slower
-    """)
-    # Collections management
-    st.subheader("Document Collections")
     
-    collection_options = list(st.session_state.collections.keys()) + ["New collection..."]
-    selected_collection = st.selectbox(
-        "Select collection",
-        collection_options,
-        index=collection_options.index(st.session_state.current_collection) if st.session_state.current_collection in collection_options else 0
-    )
-    
-    # Handle new collection creation
-    if selected_collection == "New collection...":
-        new_collection_name = st.text_input("New collection name")
-        if st.button("Create collection") and new_collection_name:
-            if new_collection_name not in st.session_state.collections:
-                st.session_state.collections[new_collection_name] = {
-                    "files": [], 
-                    "vectorstore": None,
-                    "last_updated": None
-                }
-                st.session_state.current_collection = new_collection_name
-                st.success(f"Collection '{new_collection_name}' created")
-                st.experimental_rerun()
-    else:
-        st.session_state.current_collection = selected_collection
-    
-    # Show collection info
-    if st.session_state.current_collection in st.session_state.collections:
-        collection = st.session_state.collections[st.session_state.current_collection]
-        st.write(f"Documents in this collection: {len(collection['files'])}")
-        if collection["last_updated"]:
-            st.write(f"Last update: {collection['last_updated']}")
-    
-    # Show knowledge base status
-    st.subheader("Knowledge Base")
-    kb_files = get_knowledge_base_pdfs()
-    st.write(f"PDFs in knowledge base: {len(kb_files)}")
-    if kb_files:
-        if st.button("View knowledge base content"):
-            for file in kb_files:
-                st.write(f"- {file}")
-                
-    if st.button("Reload knowledge base"):
-        with st.spinner("Reloading knowledge base..."):
-            kb_vs = process_knowledge_base()
-            if kb_vs:
-                st.session_state.collections["Knowledge Base"] = {
-                    "files": get_knowledge_base_pdfs(), 
-                    "vectorstore": kb_vs,
-                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
-                }
-                st.success("✅ Knowledge base reloaded")
-            else:
-                st.warning("Could not load knowledge base")
-    
-    # Load saved vectorstore if available
-    if st.button("Load saved collection"):
-        with st.spinner("Loading saved collection..."):
-            loaded_vs = load_vectorstore(st.session_state.current_collection)
-            if loaded_vs:
-                st.session_state.collections[st.session_state.current_collection]["vectorstore"] = loaded_vs
-                st.session_state.vectorstore = loaded_vs
-                st.success(f"✅ Collection '{st.session_state.current_collection}' loaded successfully")
-            else:
-                st.warning(f"No saved collection found for '{st.session_state.current_collection}'")
-
-    # Voice control configuration
-    if voice_available:
-        voice_config = add_voice_controls_to_sidebar()
-        use_voice = voice_config.get("enabled", False)
-    else:
-        use_voice = False
-    
-    # PDF loading method and other configs
-    st.subheader("Processing Configuration")
-    
-    pdf_loader_type = st.radio(
-    "PDF loading method",
-    ["PyPDFLoader (fast)", "UnstructuredPDFLoader (robust)"],
-    index=0 if st.session_state.pdf_loader_type == "PyPDFLoader (fast)" else 1
-    )
-    st.session_state.pdf_loader_type = pdf_loader_type
-    
-    chunk_size = st.slider(
-        "Chunk size",
-        min_value=500,
-        max_value=2000,
-        value=1000,
-        step=100
-    )
-    
-    chunk_overlap = st.slider(
-        "Chunk overlap",
-        min_value=0,
-        max_value=500,
-        value=100,
-        step=50
-    )
-    
-    k_retrievals = st.slider(
-        "Number of chunks to retrieve",
-        min_value=1,
-        max_value=8,
-        value=4,
-        step=1
-    )
-    
+    # Temperature setting
     temperature = st.slider(
         "Temperature",
         min_value=0.0,
         max_value=1.0,
         value=0.1,
-        step=0.1
+        step=0.1,
+        help="Higher values create more diverse responses, lower values are more focused and deterministic"
     )
-
-    st.markdown("---")
-    st.markdown("### About this application")
-    st.info("This app was developed to create a RAG specialized in breast cancer, allowing the storage of medical documentation and guidelines and answering questions based on scientific evidence.")
-
-# Main content - Sections: 1. Document Upload, 2. Chat Interface, 3. Calendar 4. Medication
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📄 Upload Documents", "💬 Conversation", "🗓️ Calendar", "💊 Medication", "📚 Medical Glossary", "🩺 Breast Ultrasound Segmentation" ])
-
-# Tab 1: Document Upload
-with tab1:
-    st.header("Upload Documents")
-    uploaded_files = st.file_uploader(
-        "Upload your PDF files with breast cancer information",
-        type=["pdf"],
-        accept_multiple_files=True
-    )
-
-    # Show currently loaded collection
-    st.caption(f"Current collection: **{st.session_state.current_collection}**")
-
-    # Option to add to knowledge base
-    add_to_kb = st.checkbox("Add to permanent knowledge base", value=False)
-
-    process_button = st.button("Process Documents")
-
-    # Document processing
-    if process_button and uploaded_files:
-        with st.spinner("Processing documents..."):
-            # Create temporary directory
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Process each PDF
-                all_docs = []
-                processed_files = []
-                
-                for file in uploaded_files:
-                    with st.status(f"Processing {file.name}..."):
-                        # Add to knowledge base if requested
-                        if add_to_kb:
-                            if add_to_knowledge_base(file):
-                                st.success(f"✅ {file.name} added to knowledge base")
-                        
-                        docs = process_pdf(file, temp_dir)
-                        if docs:
-                            all_docs.extend(docs)
-                            processed_files.append(file.name)
-                
-                if all_docs:
-                    # Split text into chunks
-                    with st.status("Splitting text into chunks..."):
-                        text_splitter = RecursiveCharacterTextSplitter(
-                            chunk_size=chunk_size,
-                            chunk_overlap=chunk_overlap
-                        )
-                        chunks = text_splitter.split_documents(all_docs)
-                        st.write(f"Created {len(chunks)} text chunks")
-                    
-                    # Create embeddings with Ollama
-                    with st.status("Creating embeddings with Ollama..."):
-                        try:
-                            embeddings = OllamaEmbeddings(model=st.session_state.embedding_model)
-                            
-                            # Get collection to update
-                            target_collection = st.session_state.current_collection
-                            
-                            # Create vectorstore
-                            if target_collection in st.session_state.collections and st.session_state.collections[target_collection]["vectorstore"]:
-                                # Add to existing vectorstore
-                                existing_vs = st.session_state.collections[target_collection]["vectorstore"]
-                                vectorstore = FAISS.from_documents(chunks, embeddings)
-                                
-                                # Merge vectorstores
-                                existing_vs.merge_from(vectorstore)
-                                vectorstore = existing_vs
-                            else:
-                                # Create new vectorstore
-                                vectorstore = FAISS.from_documents(chunks, embeddings)
-                            
-                            # Update collection in session state
-                            if target_collection not in st.session_state.collections:
-                                st.session_state.collections[target_collection] = {
-                                    "files": [],
-                                    "vectorstore": None,
-                                    "last_updated": None
-                                }
-                            
-                            st.session_state.collections[target_collection]["files"].extend(processed_files)
-                            st.session_state.collections[target_collection]["vectorstore"] = vectorstore
-                            st.session_state.collections[target_collection]["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                            st.session_state.vectorstore = vectorstore
-                            
-                            # Save vectorstore to disk
-                            if save_vectorstore(vectorstore, target_collection):
-                                st.success("✅ Vector database saved to disk")
-                            
-                            st.success(f"✅ Processed {len(processed_files)} PDFs successfully")
-                            
-                            # If added to KB, update the knowledge base collection
-                            if add_to_kb and "Knowledge Base" in st.session_state.collections:
-                                refresh_kb = process_knowledge_base()
-                                if refresh_kb:
-                                    st.success("✅ Knowledge base updated")
-                                    
-                        except Exception as e:
-                            st.error(f"Error creating embeddings: {str(e)}")
-                            st.info("Verify that Ollama is running correctly")
-
-    # Show processed files for current collection
-    current_collection_data = st.session_state.collections.get(st.session_state.current_collection, {})
-    if current_collection_data.get("files"):
-        st.subheader("Processed Documents")
-        st.caption(f"Collection: {st.session_state.current_collection}")
+    
+    # 4. Collections management (in an expander to save space)
+    with st.expander("📁 Document Collections"):
+        st.subheader("Document Collections")
         
-        for name in current_collection_data.get("files", []):
-            st.markdown(f"- `{name}`")
+        # Simplified collection management - start with just Knowledge Base
+        selected_collection = st.selectbox(
+            "Select collection",
+            ["Knowledge Base", "New collection..."],
+            index=0
+        )
+        
+        # Handle new collection creation
+        if selected_collection == "New collection...":
+            new_collection_name = st.text_input("New collection name")
+            if st.button("Create collection") and new_collection_name:
+                if new_collection_name not in st.session_state.collections:
+                    st.session_state.collections[new_collection_name] = {
+                        "files": [], 
+                        "vectorstore": None,
+                        "last_updated": None
+                    }
+                    st.session_state.current_collection = new_collection_name
+                    st.success(f"Collection '{new_collection_name}' created")
+                    st.experimental_rerun()
+        else:
+            st.session_state.current_collection = selected_collection
+        
+        # Show collection info
+        if st.session_state.current_collection in st.session_state.collections:
+            collection = st.session_state.collections[st.session_state.current_collection]
+            st.write(f"Documents in collection: {len(collection['files'])}")
+            if collection["last_updated"]:
+                st.write(f"Last update: {collection['last_updated']}")
+    
+    # 5. Advanced Settings in an expander
+    with st.expander("⚙️ Advanced Settings"):
+        # PDF processing options
+        st.subheader("Processing Options")
+        
+        pdf_loader_type = st.radio(
+            "PDF loading method",
+            ["PyPDFLoader (fast)", "UnstructuredPDFLoader (robust)"],
+            index=0 if st.session_state.pdf_loader_type == "PyPDFLoader (fast)" else 1,
+            help="PyPDFLoader is faster but simpler, UnstructuredPDFLoader handles complex PDFs better"
+        )
+        st.session_state.pdf_loader_type = pdf_loader_type
+        
+        chunk_size = st.slider(
+            "Chunk size",
+            min_value=500,
+            max_value=2000,
+            value=1000,
+            step=100,
+            help="Size of text chunks for processing. Larger chunks provide more context but less precision"
+        )
+        
+        chunk_overlap = st.slider(
+            "Chunk overlap",
+            min_value=0,
+            max_value=500,
+            value=100,
+            step=50,
+            help="Overlap between chunks to maintain context across splits"
+        )
+        
+        k_retrievals = st.slider(
+            "Number of chunks to retrieve",
+            min_value=1,
+            max_value=8,
+            value=4,
+            step=1,
+            help="How many document chunks to retrieve for each question"
+        )
+        
+    # 6. Knowledge Base section
+    with st.expander("🧠 Knowledge Base"):
+        st.subheader("Knowledge Base")
+        kb_files = get_knowledge_base_pdfs()
+        st.write(f"PDFs in knowledge base: {len(kb_files)}")
+        
+        if kb_files:
+            if st.button("View knowledge base content"):
+                for file in kb_files:
+                    st.write(f"- {file}")
+                    
+        if st.button("Reload knowledge base"):
+            with st.spinner("Reloading knowledge base..."):
+                kb_vs = process_knowledge_base()
+                if kb_vs:
+                    st.session_state.collections["Knowledge Base"] = {
+                        "files": get_knowledge_base_pdfs(), 
+                        "vectorstore": kb_vs,
+                        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    }
+                    st.success("✅ Knowledge base reloaded")
+                else:
+                    st.warning("Could not load knowledge base")
+        
+        # Load saved vectorstore if available
+        if st.button("Load saved collection"):
+            with st.spinner("Loading saved collection..."):
+                loaded_vs = load_vectorstore(st.session_state.current_collection)
+                if loaded_vs:
+                    st.session_state.collections[st.session_state.current_collection]["vectorstore"] = loaded_vs
+                    st.session_state.vectorstore = loaded_vs
+                    st.success(f"✅ Collection '{st.session_state.current_collection}' loaded successfully")
+                else:
+                    st.warning(f"No saved collection found for '{st.session_state.current_collection}'")
+    
+    # Export conversation option
+    if st.session_state.messages:
+        chat_export = "\n\n".join([f"{'User' if m['role']=='user' else 'Assistant'}: {m['content']}" for m in st.session_state.messages])
+        st.download_button(
+            "Download Conversation History", 
+            chat_export, 
+            file_name=f"breast-cancer-conversation-{datetime.now().strftime('%Y%m%d-%H%M')}.txt",
+            use_container_width=True
+        )
+    
+    # Voice control configuration (removed as requested)
+    use_voice = False
+    
+    # 8. Help and Documentation
+    st.subheader("🧭 About")
+    st.info("""
+    This app provides a RAG system specialized in breast cancer information.
+    It allows storing medical documentation and guidelines, and answering 
+    questions based on scientific evidence.
+    """)
+    
+    # Add GitHub link
+    st.markdown("[Visit the project on GitHub](https://github.com/higlesiasvd/breast-cancer-analysis.git)")
+    
+    # Add simple link to the PDF user guide
+    st.subheader("📖 User Guide")
+    st.markdown("[Download User Guide PDF](https://github.com/higlesiasvd/breast-cancer-analysis/blob/main/docs/user_guide.pdf)")
+    st.caption("The user guide contains instructions, FAQs, and tips for using the application effectively.")
 
-# Tab 2: Chat Interface
-with tab2:
+# --------------------------
+# MAIN TABS - REORGANIZED
+# --------------------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "💬 Conversation & Documents", 
+    "🩺 Breast Ultrasound Analysis", 
+    "🗓️ Calendar", 
+    "💊 Medication", 
+    "📚 Medical Glossary"
+])
+
+# --------------------------
+# TAB 1: CONVERSATION & DOCUMENTS (COMBINED)
+# --------------------------
+with tab1:
+    # Document Upload Section in an expander
+    with st.expander("📄 Upload Documents", expanded=False):
+        st.header("Upload Documents")
+        uploaded_files = st.file_uploader(
+            "Upload PDF files with breast cancer information",
+            type=["pdf"],
+            accept_multiple_files=True
+        )
+
+        # Show currently loaded collection
+        st.caption(f"Current collection: **{st.session_state.current_collection}**")
+
+        # Option to add to knowledge base
+        add_to_kb = st.checkbox("Add to permanent knowledge base", value=False)
+
+        process_button = st.button("Process Documents")
+
+        # Document processing
+        if process_button and uploaded_files:
+            with st.spinner("Processing documents..."):
+                # Create temporary directory
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Process each PDF
+                    all_docs = []
+                    processed_files = []
+                    
+                    for file in uploaded_files:
+                        with st.status(f"Processing {file.name}..."):
+                            # Add to knowledge base if requested
+                            if add_to_kb:
+                                if add_to_knowledge_base(file):
+                                    st.success(f"✅ {file.name} added to knowledge base")
+                            
+                            docs = process_pdf(file, temp_dir)
+                            if docs:
+                                all_docs.extend(docs)
+                                processed_files.append(file.name)
+                    
+                    if all_docs:
+                        # Split text into chunks
+                        with st.status("Splitting text into chunks..."):
+                            text_splitter = RecursiveCharacterTextSplitter(
+                                chunk_size=chunk_size,
+                                chunk_overlap=chunk_overlap
+                            )
+                            chunks = text_splitter.split_documents(all_docs)
+                            st.write(f"Created {len(chunks)} text chunks")
+                        
+                        # Create embeddings with Ollama
+                        with st.status("Creating embeddings with Ollama..."):
+                            try:
+                                embeddings = OllamaEmbeddings(model=st.session_state.embedding_model)
+                                
+                                # Get collection to update
+                                target_collection = st.session_state.current_collection
+                                
+                                # Create vectorstore
+                                if target_collection in st.session_state.collections and st.session_state.collections[target_collection]["vectorstore"]:
+                                    # Add to existing vectorstore
+                                    existing_vs = st.session_state.collections[target_collection]["vectorstore"]
+                                    vectorstore = FAISS.from_documents(chunks, embeddings)
+                                    
+                                    # Merge vectorstores
+                                    existing_vs.merge_from(vectorstore)
+                                    vectorstore = existing_vs
+                                else:
+                                    # Create new vectorstore
+                                    vectorstore = FAISS.from_documents(chunks, embeddings)
+                                
+                                # Update collection in session state
+                                if target_collection not in st.session_state.collections:
+                                    st.session_state.collections[target_collection] = {
+                                        "files": [],
+                                        "vectorstore": None,
+                                        "last_updated": None
+                                    }
+                                
+                                st.session_state.collections[target_collection]["files"].extend(processed_files)
+                                st.session_state.collections[target_collection]["vectorstore"] = vectorstore
+                                st.session_state.collections[target_collection]["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                st.session_state.vectorstore = vectorstore
+                                
+                                # Save vectorstore to disk
+                                if save_vectorstore(vectorstore, target_collection):
+                                    st.success("✅ Vector database saved to disk")
+                                
+                                st.success(f"✅ Processed {len(processed_files)} PDFs successfully")
+                                
+                                # If added to KB, update the knowledge base collection
+                                if add_to_kb and "Knowledge Base" in st.session_state.collections:
+                                    refresh_kb = process_knowledge_base()
+                                    if refresh_kb:
+                                        st.success("✅ Knowledge base updated")
+                                        
+                            except Exception as e:
+                                st.error(f"Error creating embeddings: {str(e)}")
+                                st.info("Verify that Ollama is running correctly")
+
+        # Show processed files for current collection
+        current_collection_data = st.session_state.collections.get(st.session_state.current_collection, {})
+        if current_collection_data.get("files"):
+            st.subheader("Processed Documents")
+            st.caption(f"Collection: {st.session_state.current_collection}")
+            
+            for name in current_collection_data.get("files", []):
+                st.markdown(f"- `{name}`")
+    
+    # Conversation Section - Main part of the tab
     st.header("Breast Cancer Conversation")
     
     # Show information about the model in use
@@ -1187,6 +1221,7 @@ with tab2:
                 else:
                     # For user messages, show normal text
                     st.markdown(message["content"])
+                    
     # Voice interface
     if voice_available:
         voice_interface_result = add_voice_interface_to_chat(
@@ -1194,7 +1229,7 @@ with tab2:
             on_voice_input=lambda text: st.session_state.messages.append({"role": "user", "content": text})
         )
         
-        #
+        # Read response aloud option
         if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
             if st.button("🔊 READ THIS RESPONSE"):
                 text_to_read = st.session_state.messages[-1]["content"]
@@ -1202,6 +1237,7 @@ with tab2:
                 audio_path = gtts_generate_speech(text_to_read)
                 if audio_path:
                     st.audio(audio_path)
+        
         # If there's already a transcription, show it
         if 'transcription' in st.session_state and st.session_state.transcription:
             voice_text = st.session_state.transcription
@@ -1229,6 +1265,44 @@ with tab2:
                 import time
                 time.sleep(10)
                 voice_text = None
+    
+    # Add medical terms detection button directly in the chat interface
+    if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
+        last_answer = st.session_state.messages[-1]["content"]
+        
+        # Add button to analyze medical terms after assistant's response
+        if st.button("🔍 Explain Medical Terms in This Response", key="inline_terms_btn"):
+            with st.spinner("Analyzing text for medical terms..."):
+                try:
+                    detector = med_detection.get_medical_terms_detector()
+                    detected_terms = detector.detect_medical_terms(last_answer)
+                    
+                    if detected_terms:
+                        # Automatically save terms
+                        if 'saved_medical_terms' not in st.session_state:
+                            st.session_state.saved_medical_terms = []
+                        
+                        # Add only new terms
+                        terms_added = 0
+                        current_terms = [t['term'] for t in st.session_state.saved_medical_terms]
+                        for term in detected_terms:
+                            if term['term'] not in current_terms:
+                                st.session_state.saved_medical_terms.append(term)
+                                terms_added += 1
+                        
+                        # Show terms
+                        with st.expander(f"📚 Medical terms in this response:", expanded=True):
+                            st.markdown(
+                                detector.format_results_for_display(detected_terms),
+                                unsafe_allow_html=True
+                            )
+                            
+                            # Add link to glossary tab
+                            st.info(f"✅ Found {len(detected_terms)} medical terms. {terms_added} new terms saved to the Medical Glossary tab.")
+                    else:
+                        st.info("No medical terms detected in this response.")
+                except Exception as e:
+                    st.error(f"Error analyzing medical terms: {str(e)}")
     
     # User input using chat_input
     user_question = st.chat_input("Type your question about breast cancer")
@@ -1339,57 +1413,10 @@ with tab2:
                                     st.text(doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content)
                                     st.markdown("---")
                     
-                    # Show additional resources below the response
-                    with chat_container:
-                        # Create columns for additional resources
-                        st.subheader("Additional Resources")
-                        resources_cols = st.columns(3)
-                        
-                        with resources_cols[0]:
-                            st.info("📋 **Clinical Guidelines**\nOfficial resources for patients and families.")
-                            if st.button("View guidelines", key="guides_btn"):
-                                st.markdown("""
-                                - [National Cancer Institute](https://www.cancer.gov/types/breast)
-                                - [American Cancer Society](https://www.cancer.org/cancer/breast-cancer.html)
-                                - [Breast Cancer Now](https://breastcancernow.org/information-support)
-                                """)
-                        
-                        with resources_cols[1]:
-                            st.success("🏥 **Specialized Centers**\nReference centers for breast cancer.")
-                            if st.button("Find centers", key="centers_btn"):
-                                st.markdown("""
-                                To find specialized centers in your area, consult:
-                                
-                                - The American Society of Clinical Oncology directory
-                                - National Cancer Institute Designated Cancer Centers
-                                - Breast centers with NAPBC accreditation
-                                """)
-                        
-                        with resources_cols[2]:
-                            st.warning("👩‍⚕️ **Psychological Support**\nEmotional support resources during the process.")
-                            if st.button("Support options", key="support_btn"):
-                                st.markdown("""
-                                - Local patient support groups
-                                - Hospital psycho-oncology services
-                                - Patient associations like Susan G. Komen Foundation
-                                - Cancer Support Community Helpline: 1-888-793-9355
-                                """)
-                        with chat_container:
-                            # Obtener la última pregunta y respuesta
-                            last_user_messages = [msg for msg in st.session_state.messages if msg["role"] == "user"]
-                            last_assistant_messages = [msg for msg in st.session_state.messages if msg["role"] == "assistant"]
-
-                            # Definición persistente de last_answer
-                            if last_assistant_messages:
-                                last_answer = last_assistant_messages[-1]["content"]
-                                st.session_state.last_answer = last_answer  # Guardar en session_state para acceso más consistente
-                            else:
-                                last_answer = st.session_state.get("last_answer", "")
-                            
-                            if last_user_messages and last_assistant_messages:
-                                last_question = last_user_messages[-1]["content"]
-                                last_answer = last_assistant_messages[-1]["content"]
-
+                    # Store for potential actions
+                    st.session_state.last_answer = response["answer"]
+                    st.session_state.last_question = last_question
+                    
                 except Exception as e:
                     with chat_container:
                         with st.chat_message("assistant"):
@@ -1398,100 +1425,12 @@ with tab2:
         else:
             with chat_container:
                 with st.chat_message("assistant"):
-                    st.warning("No processed documents to answer your question. Please upload and process documents in the 'Upload Documents' tab first.")           
+                    st.warning("No processed documents to answer your question. Please upload and process documents first (use the 'Upload Documents' section above).")
 
-# Botones de acción (fuera de los bloques anidados)
-st.subheader("Actions")
-action_col1, action_col2 = st.columns(2)
-
-# Botón para calendario
-with action_col1:
-    if st.button("🗓️ Schedule consultation with this question", key="calendar_btn"):
-        if 'saved_questions' not in st.session_state:
-            st.session_state.saved_questions = []
-        
-        # Asegurarse de que last_question existe
-        if 'last_question' in locals() or 'last_question' in st.session_state:
-            question = locals().get('last_question', st.session_state.get('last_question', ''))
-            st.session_state.saved_questions.append(question)
-            st.info("Question saved. Go to the Calendar tab to schedule your appointment.")
-        else:
-            st.warning("No question available to save")
-
-# Botón para términos médicos
-with action_col2:
-    if st.button("🔍 Explain medical terms", key="terms_btn"):
-        st.write("Processing medical terms...")
-        with st.spinner("Analyzing text for medical terms..."):
-            try:
-                # Obtener last_answer de forma segura
-                if 'last_answer' not in locals() and 'last_answer' not in st.session_state:
-                    last_answer = ""
-                    if last_assistant_messages:
-                        last_answer = last_assistant_messages[-1]["content"]
-                else:
-                    last_answer = locals().get('last_answer', st.session_state.get('last_answer', ''))
-                
-                if not last_answer:
-                    st.warning("No assistant response to analyze")
-                else:
-                    detector = med_detection.get_medical_terms_detector()
-                    detected_terms = detector.detect_medical_terms(last_answer)
-                    
-                    if detected_terms:
-                        # Guardar automáticamente los términos
-                        if 'saved_medical_terms' not in st.session_state:
-                            st.session_state.saved_medical_terms = []
-                        
-                        # Añadir solo términos nuevos
-                        terms_added = 0
-                        current_terms = [t['term'] for t in st.session_state.saved_medical_terms]
-                        for term in detected_terms:
-                            if term['term'] not in current_terms:
-                                st.session_state.saved_medical_terms.append(term)
-                                terms_added += 1
-                        
-                        # Mostrar mensaje de éxito
-                        st.success(f"Found {len(detected_terms)} medical terms. {terms_added} new terms saved to glossary.")
-                        
-                        # Mostrar los términos
-                        with st.expander(f"📚 Medical terms in this response:", expanded=True):
-                            st.markdown(
-                                detector.format_results_for_display(detected_terms),
-                                unsafe_allow_html=True
-                            )
-                            
-                            # Añadir link a la pestaña del glosario
-                            st.info("✅ Terms are automatically saved. View all terms in the Medical Glossary tab.")
-                    else:
-                        st.info("No medical terms detected in this response.")
-            except Exception as e:
-                st.error(f"Error analyzing medical terms: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc(), language="python")
-
-
-with tab3:
-    # show saved questions from the conversation
-    if 'saved_questions' in st.session_state and st.session_state.saved_questions:
-        st.subheader("Questions saved from conversation")
-        for i, question in enumerate(st.session_state.saved_questions):
-            st.markdown(f"{i+1}. {question}")
-        
-        if st.button("Clear saved questions"):
-            st.session_state.saved_questions = []
-            st.experimental_rerun()
-    # Calendar integration
-    calendar_integration.calendar_management_ui()
-
-with tab4:
-    # Call to the main function of the medication reminders module
-    medication_reminders.medication_reminders_ui()
-
-with tab5:  # Call to the medical glossary module
-    medical_glossary.medical_glossary_ui()
-
-with tab6:
+# --------------------------
+# TAB 2: BREAST ULTRASOUND SEGMENTATION - MOVED TO SECOND POSITION
+# --------------------------
+with tab2:
     st.header("🩺 Breast Ultrasound Segmentation & BI-RADS Analysis")
     st.write("Upload an ultrasound image to segment breast tissue, visualize the result, and classify with BI-RADS using a weighted rule-based approach.")
     
@@ -2178,7 +2117,40 @@ with tab6:
         except Exception as e:
             st.warning(f"Error cleaning up temporary files: {str(e)}")
 
-# Debug information
+# --------------------------
+# TAB 3: CALENDAR
+# --------------------------
+with tab3:
+    # Show saved questions from the conversation
+    if 'saved_questions' in st.session_state and st.session_state.saved_questions:
+        st.subheader("Questions saved from conversation")
+        for i, question in enumerate(st.session_state.saved_questions):
+            st.markdown(f"{i+1}. {question}")
+        
+        if st.button("Clear saved questions"):
+            st.session_state.saved_questions = []
+            st.experimental_rerun()
+    
+    # Calendar integration
+    calendar_integration.calendar_management_ui()
+
+# --------------------------
+# TAB 4: MEDICATION
+# --------------------------
+with tab4:
+    # Call to the main function of the medication reminders module
+    medication_reminders.medication_reminders_ui()
+
+# --------------------------
+# TAB 5: MEDICAL GLOSSARY
+# --------------------------
+with tab5:
+    # Call to the medical glossary module
+    medical_glossary.medical_glossary_ui()
+
+# --------------------------
+# DEBUG INFORMATION - ONLY VISIBLE WHEN EXPANDED
+# --------------------------
 with st.expander("Debug information", expanded=False):
     st.write(f"Python version: {sys.version}")
     st.write(f"Current directory: {os.getcwd()}")

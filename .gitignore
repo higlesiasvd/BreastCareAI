@@ -135,7 +135,7 @@ cython_debug/
 datasets/
 
 # Models and binaries
-model*
+#model*
 *.bin
 *.safetensors
 *.pth
